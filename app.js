@@ -229,13 +229,13 @@ async function renderPersonPage(me) {
 
       <button class="primary" id="newTaskBtn" style="margin:14px 0;">＋ タスクを依頼する</button>
 
-      <div class="view-tabs">
+      <div class="view-tabs${isAdmin ? ' many' : ''}">
         <button class="view-tab sel" data-tab="received">受けたタスク</button>
         <button class="view-tab" data-tab="requested">依頼したタスク</button>
-        ${isAdmin ? '<button class="view-tab" data-tab="all">全員のタスク</button>' : ''}
+        ${isAdmin ? '<button class="view-tab" data-tab="all">全員のタスク</button><button class="view-tab" data-tab="members">メンバー管理</button>' : ''}
       </div>
 
-      <div class="filter-row">
+      <div class="filter-row" id="filterRow">
         <button class="filter-chip sel" data-filter="open">未完了</button>
         <button class="filter-chip" data-filter="all">すべて</button>
       </div>
@@ -310,6 +310,10 @@ async function renderPersonPage(me) {
   async function refreshActive() {
     listArea.innerHTML = '<p class="hint">読み込み中…</p>';
     try {
+      if (activeTab === 'members') {
+        await renderMembers(listArea, me);
+        return;
+      }
       if (activeTab === 'received') {
         receivedTasks = await fetchTasksByAssignee(slug);
       } else if (activeTab === 'requested') {
@@ -330,6 +334,7 @@ async function renderPersonPage(me) {
       btn.classList.add('sel');
       activeTab = btn.dataset.tab;
       document.getElementById('personFilterField').style.display = activeTab === 'all' ? '' : 'none';
+      document.getElementById('filterRow').style.display = activeTab === 'members' ? 'none' : '';
       refreshActive();
     });
   });
@@ -367,6 +372,200 @@ async function renderPersonPage(me) {
   await refreshActive();
 }
 
+// ---- 管理者用: メンバー管理 ----
+
+const PASSCODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'; // 紛らわしい文字(0/o、1/l/i)を除く
+
+function generatePasscode() {
+  const bytes = new Uint32Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => PASSCODE_ALPHABET[b % PASSCODE_ALPHABET.length]).join('');
+}
+
+async function renderMembers(container, me) {
+  EMPLOYEES = await fetchEmployees();
+  const items = EMPLOYEES.map((e) => {
+    const badges =
+      (e.is_admin ? '<span class="admin-badge">管理者</span>' : '') +
+      (e.active === false ? '<span class="admin-badge off">利用停止中</span>' : '');
+    return `<li class="task-item${e.active === false ? ' inactive' : ''}" data-slug="${escapeHtml(e.slug)}">
+      <div class="task-title">${escapeHtml(e.name)}${badges}</div>
+      <div class="task-meta">ログインID: ${escapeHtml(e.slug)}</div>
+    </li>`;
+  }).join('');
+  container.innerHTML = `
+    <button class="ghost" id="addMemberBtn" style="width:100%;margin-bottom:12px;">＋ メンバーを追加する</button>
+    <ul class="task-list">${items}</ul>
+    <p class="hint" style="margin-top:14px;">名前をタップすると、名前の変更・管理者の切り替え・利用停止・パスコードのリセットができます。</p>`;
+
+  const reload = () => renderMembers(container, me);
+  document.getElementById('addMemberBtn').addEventListener('click', () => openAddMemberSheet({ onDone: reload }));
+  container.querySelectorAll('.task-item').forEach((li) => {
+    li.addEventListener('click', () => {
+      const emp = EMPLOYEES.find((e) => e.slug === li.dataset.slug);
+      if (emp) openEditMemberSheet(emp, me, { onDone: reload });
+    });
+  });
+}
+
+function showMsg(el, text, isError) {
+  el.textContent = text;
+  el.className = isError ? 'msg msg-error' : 'msg';
+}
+
+function openAddMemberSheet({ onDone }) {
+  const overlay = openSheet(`
+    <div class="sheet-header">
+      <h2>メンバーを追加する</h2>
+      <button class="sheet-close" id="am-close">×</button>
+    </div>
+    <div id="am-form">
+      <div class="field">
+        <label for="am-name">名前(画面に表示されます)</label>
+        <input id="am-name" type="text" placeholder="例) 山田太郎">
+      </div>
+      <div class="field">
+        <label for="am-slug">ログインID(半角の英小文字・数字・ハイフン)</label>
+        <input id="am-slug" type="text" autocapitalize="none" autocorrect="off" placeholder="例) yamada">
+      </div>
+      <div class="field">
+        <label for="am-pass">仮のパスコード(8文字以上。本人が初回ログイン時に自分で決め直します)</label>
+        <input id="am-pass" type="text" autocapitalize="none" autocorrect="off" value="${generatePasscode()}">
+        <button class="ghost" id="am-regen" style="margin-top:6px;">別のパスコードを作る</button>
+      </div>
+      <div class="field">
+        <label><input id="am-admin" type="checkbox" style="width:auto;"> 管理者にする(全員のタスクとメンバー管理を使える)</label>
+      </div>
+      <button class="primary" id="am-submit">追加する</button>
+      <p class="msg" id="am-msg"></p>
+    </div>
+  `);
+  document.getElementById('am-close').addEventListener('click', () => {
+    closeSheet(overlay);
+    onDone();
+  });
+  document.getElementById('am-regen').addEventListener('click', () => {
+    document.getElementById('am-pass').value = generatePasscode();
+  });
+  document.getElementById('am-submit').addEventListener('click', async () => {
+    const name = document.getElementById('am-name').value.trim();
+    const slug = document.getElementById('am-slug').value.trim().toLowerCase();
+    const passcode = document.getElementById('am-pass').value;
+    const isAdmin = document.getElementById('am-admin').checked;
+    const msgEl = document.getElementById('am-msg');
+    if (!name) return showMsg(msgEl, '名前を入力してください。', true);
+    if (!/^[a-z0-9-]+$/.test(slug)) return showMsg(msgEl, 'ログインIDは半角の英小文字・数字・ハイフンだけにしてください。', true);
+    if (passcode.length < MIN_PASSCODE_LENGTH) return showMsg(msgEl, `仮のパスコードは${MIN_PASSCODE_LENGTH}文字以上にしてください。`, true);
+    const btn = document.getElementById('am-submit');
+    btn.disabled = true;
+    showMsg(msgEl, '追加中…', false);
+    try {
+      await adminAddEmployee({ slug, name, passcode, isAdmin });
+      document.getElementById('am-form').innerHTML = `
+        <p class="msg msg-success" style="margin-top:0;">${escapeHtml(name)}さんを追加しました。</p>
+        <div class="card" style="margin:12px 0;">
+          <div class="hint">名前</div><div style="font-weight:700;">${escapeHtml(name)}</div>
+          <div class="hint" style="margin-top:8px;">仮のパスコード</div>
+          <div style="font-weight:700;font-size:20px;letter-spacing:1px;">${escapeHtml(passcode)}</div>
+        </div>
+        <p class="hint">この画面を閉じると、仮のパスコードは二度と表示できません。本人にだけ伝えてください(初回ログイン時に、本人が自分のパスコードへ変更します)。</p>
+        <button class="primary" id="am-done">閉じる</button>`;
+      document.getElementById('am-done').addEventListener('click', () => {
+        closeSheet(overlay);
+        onDone();
+      });
+    } catch (e) {
+      console.error(e);
+      showMsg(msgEl, e.message || '追加できませんでした。', true);
+      btn.disabled = false;
+    }
+  });
+}
+
+function openEditMemberSheet(emp, me, { onDone }) {
+  const isSelf = emp.slug === me.slug;
+  const overlay = openSheet(`
+    <div class="sheet-header">
+      <h2>${escapeHtml(emp.name)}さん</h2>
+      <button class="sheet-close" id="em-close">×</button>
+    </div>
+    <p class="sheet-sub">ログインID: ${escapeHtml(emp.slug)}${isSelf ? ' ／ ご自身' : ''}</p>
+    <div class="field">
+      <label for="em-name">名前</label>
+      <input id="em-name" type="text" value="${escapeHtml(emp.name)}">
+    </div>
+    <div class="field">
+      <label><input id="em-admin" type="checkbox" style="width:auto;" ${emp.is_admin ? 'checked' : ''} ${isSelf ? 'disabled' : ''}> 管理者</label>
+    </div>
+    <div class="field">
+      <label><input id="em-active" type="checkbox" style="width:auto;" ${emp.active === false ? '' : 'checked'} ${isSelf ? 'disabled' : ''}> 利用中(外すとログインできなくなり、担当者の選択肢からも消えます。過去のタスクは残ります)</label>
+    </div>
+    ${isSelf ? '<p class="hint">ご自身の管理者権限と利用状態は、ここでは変更できません(締め出し防止)。</p>' : ''}
+    <button class="primary" id="em-save">変更を保存する</button>
+    <p class="msg" id="em-msg"></p>
+    <hr class="sep">
+    <h2 style="font-size:14px;">パスコードのリセット</h2>
+    <p class="hint">忘れた場合などに、仮のパスコードを設定し直します。本人は次回ログイン時に、また自分のパスコードを決め直します。ログイン中の端末は、ログアウトされます。</p>
+    <div class="field">
+      <input id="em-pass" type="text" autocapitalize="none" autocorrect="off" value="${generatePasscode()}">
+      <button class="ghost" id="em-regen" style="margin-top:6px;">別のパスコードを作る</button>
+    </div>
+    <button class="secondary" id="em-reset">この仮のパスコードにリセットする</button>
+    <p class="msg" id="em-pmsg"></p>
+  `);
+
+  document.getElementById('em-close').addEventListener('click', () => {
+    closeSheet(overlay);
+    onDone();
+  });
+  document.getElementById('em-regen').addEventListener('click', () => {
+    document.getElementById('em-pass').value = generatePasscode();
+  });
+
+  document.getElementById('em-save').addEventListener('click', async () => {
+    const name = document.getElementById('em-name').value.trim();
+    const msgEl = document.getElementById('em-msg');
+    if (!name) return showMsg(msgEl, '名前を入力してください。', true);
+    const btn = document.getElementById('em-save');
+    btn.disabled = true;
+    showMsg(msgEl, '保存中…', false);
+    try {
+      await adminUpdateEmployee({
+        slug: emp.slug,
+        name,
+        isAdmin: document.getElementById('em-admin').checked,
+        active: document.getElementById('em-active').checked,
+      });
+      closeSheet(overlay);
+      onDone();
+    } catch (e) {
+      console.error(e);
+      showMsg(msgEl, e.message || '保存できませんでした。', true);
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('em-reset').addEventListener('click', async () => {
+    const passcode = document.getElementById('em-pass').value;
+    const msgEl = document.getElementById('em-pmsg');
+    if (passcode.length < MIN_PASSCODE_LENGTH) return showMsg(msgEl, `仮のパスコードは${MIN_PASSCODE_LENGTH}文字以上にしてください。`, true);
+    if (!confirm(`${emp.name}さんのパスコードを「${passcode}」にリセットします。よろしいですか？`)) return;
+    const btn = document.getElementById('em-reset');
+    btn.disabled = true;
+    showMsg(msgEl, 'リセット中…', false);
+    try {
+      await adminResetPasscode(emp.slug, passcode);
+      showMsg(msgEl, `リセットしました。仮のパスコード「${passcode}」を本人にお伝えください。`, false);
+      msgEl.className = 'msg msg-success';
+    } catch (e) {
+      console.error(e);
+      showMsg(msgEl, e.message || 'リセットできませんでした。', true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 function openSheet(innerHtml) {
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
@@ -383,7 +582,9 @@ function closeSheet(overlay) {
 }
 
 function openNewTaskSheet(me, { onCreated }) {
-  const assigneeOptions = EMPLOYEES.map((e) => `<option value="${e.slug}">${escapeHtml(e.name)}</option>`).join('');
+  const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false)
+    .map((e) => `<option value="${e.slug}">${escapeHtml(e.name)}</option>`)
+    .join('');
   const overlay = openSheet(`
     <div class="sheet-header">
       <h2>タスクを依頼する</h2>
@@ -626,9 +827,9 @@ function renderViewerActions(container, task, me, { onMessagePosted }) {
 }
 
 function renderRequesterActions(container, task, me, { onEdited, onMessagePosted }) {
-  const assigneeOptions = EMPLOYEES.map(
-    (e) => `<option value="${e.slug}"${e.slug === task.assignee_slug ? ' selected' : ''}>${escapeHtml(e.name)}</option>`
-  ).join('');
+  const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false || e.slug === task.assignee_slug)
+    .map((e) => `<option value="${e.slug}"${e.slug === task.assignee_slug ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
+    .join('');
   container.innerHTML = `
     <div class="field">
       <label for="et-title">タスク内容</label>

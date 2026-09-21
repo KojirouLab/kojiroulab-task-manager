@@ -65,9 +65,39 @@ async function fetchCurrentEmployee() {
 // ログイン後に読める社員一覧(担当者の選択肢用)
 async function fetchEmployees() {
   assertClient();
-  const { data, error } = await sb.from('employees').select('slug, name, is_admin').order('sort_order').order('name');
+  const { data, error } = await sb.from('employees').select('slug, name, is_admin, active').order('sort_order').order('name');
   if (error) throw error;
   return data || [];
+}
+
+// ---- 管理者用: メンバー管理(DB側の関数が、呼んだ人が管理者かどうかを必ず確認する) ----
+
+async function adminAddEmployee({ slug, name, passcode, isAdmin }) {
+  assertClient();
+  const { error } = await sb.rpc('admin_add_employee', {
+    p_slug: slug,
+    p_name: name,
+    p_passcode: passcode,
+    p_is_admin: !!isAdmin,
+  });
+  if (error) throw error;
+}
+
+async function adminUpdateEmployee({ slug, name, isAdmin, active }) {
+  assertClient();
+  const { error } = await sb.rpc('admin_update_employee', {
+    p_slug: slug,
+    p_name: name,
+    p_is_admin: !!isAdmin,
+    p_active: !!active,
+  });
+  if (error) throw error;
+}
+
+async function adminResetPasscode(slug, passcode) {
+  assertClient();
+  const { error } = await sb.rpc('admin_reset_passcode', { p_slug: slug, p_passcode: passcode });
+  if (error) throw error;
 }
 
 // ---- タスク ----
