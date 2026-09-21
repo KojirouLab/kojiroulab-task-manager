@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社内タスク管理</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="タスク管理">
+<meta name="theme-color" content="#0d6b58">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --primary: #0d6b58;
+    --primary-dark: #0a5545;
+    --bg: #f7f7f5;
+    --card-bg: #ffffff;
+    --border: #e2e2de;
+    --text: #2a2a28;
+    --hint: #767671;
+    --danger: #c0392b;
+    --success: #1e7a3d;
+    --warning: #9a6400;
+    --warning-bg: #fbf1dc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .page {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 4px;
+  }
+  h2 {
+    font-size: 16px;
+    margin: 0 0 12px;
+  }
+  .hint {
+    color: var(--hint);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin: 16px 0;
+  }
+  .field {
+    margin-bottom: 14px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--hint);
+    margin-bottom: 6px;
+  }
+  input, textarea, select {
+    width: 100%;
+    font-size: 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text);
+    font-family: inherit;
+  }
+  textarea {
+    resize: vertical;
+  }
+  button.primary {
+    width: 100%;
+    padding: 13px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--primary);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button.primary:active {
+    background: var(--primary-dark);
+  }
+  button.primary:disabled {
+    opacity: 0.6;
+  }
+  button.secondary {
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--danger);
+    background: #fff;
+    border: 1px solid var(--danger);
+    border-radius: 10px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  button.secondary:disabled {
+    opacity: 0.5;
+  }
+  button.ghost {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+    background: #fff;
+    border: 1px solid var(--primary);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .msg {
+    min-height: 20px;
+    font-size: 13px;
+    margin-top: 10px;
+  }
+  .msg-success, .msg-error {
+    font-size: 14px;
+    font-weight: 700;
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .msg-success { color: var(--success); background: #e6f4ea; }
+  .msg-error { color: var(--danger); background: #fbe9e7; }
+  .home-links {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .home-links li {
+    border-bottom: 1px solid var(--border);
+  }
+  .home-links li:last-child {
+    border-bottom: none;
+  }
+  .home-links a {
+    display: block;
+    padding: 12px 4px;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  /* ヘッダー */
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .admin-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: middle;
+    background: var(--warning-bg);
+    color: var(--warning);
+  }
+  .header-links { display: flex; gap: 12px; flex-shrink: 0; }
+  .page-header a.switch-link {
+    font-size: 12.5px;
+    color: var(--hint);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  /* タブ */
+  .view-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .view-tab {
+    flex: 1;
+    font-size: 13.5px;
+    font-weight: 700;
+    padding: 10px 0;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--hint);
+    cursor: pointer;
+  }
+  .view-tab.sel {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+
+  /* フィルタチップ */
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .filter-chip {
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--hint);
+    cursor: pointer;
+  }
+  .filter-chip.sel {
+    background: #eef6f2;
+    color: var(--primary);
+    border-color: var(--primary);
+  }
+
+  /* ステータスバッジ */
+  .status-badge {
+    display: inline-block;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .status-todo { background: #f0f0ec; color: var(--hint); }
+  .status-progress { background: #e5f0ee; color: var(--primary); }
+  .status-done { background: #e6f4ea; color: var(--success); }
+
+  /* タスク一覧 */
+  .task-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .task-item {
+    padding: 12px 4px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .task-item:last-child { border-bottom: none; }
+  .task-item:active { background: #f0f0ec; }
+  .task-title {
+    font-size: 15.5px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .task-meta {
+    font-size: 12.5px;
+    color: var(--hint);
+  }
+  .task-item.overdue .task-title,
+  .task-item.overdue .task-meta {
+    color: var(--danger);
+  }
+
+  /* オーバーレイ/シート */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(30, 28, 24, .42);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 30;
+  }
+  .sheet {
+    background: #fff;
+    width: 100%;
+    max-width: 480px;
+    max-height: 88vh;
+    overflow-y: auto;
+    border-radius: 16px 16px 0 0;
+    padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+  .sheet-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .sheet-header h2 { margin: 0; }
+  .sheet-close {
+    width: auto;
+    background: none;
+    border: none;
+    color: var(--hint);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+  .sheet-sub {
+    font-size: 12.5px;
+    color: var(--hint);
+    margin: -10px 0 14px;
+  }
+
+  /* やり取りログ */
+  .update-log {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0;
+  }
+  .update-log li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .update-log li:last-child { border-bottom: none; }
+  .update-meta {
+    color: var(--hint);
+    font-size: 11.5px;
+    margin-bottom: 2px;
+  }
+  hr.sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 18px 0;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="storage.js?v=202609211123"></script>
+<script src="app.js?v=202609211123"></script>
+</body>
+</html>
