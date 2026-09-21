@@ -173,11 +173,19 @@
   .admin-badge.off { background: #f0f0ec; color: var(--hint); }
   .task-item.inactive { opacity: 0.6; }
   .view-tabs.many .view-tab { font-size: 13px; padding: 10px 2px; }
-  .page.wide { max-width: 1080px; }
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-  .two-col .col h2 { font-size: 15px; margin: 4px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--primary); }
-  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
-  .prio-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--hint); margin: 14px 0 4px; }
+  .page.wide { max-width: 1200px; }
+  .board { margin-bottom: 28px; }
+  .board h2 { font-size: 15px; margin: 4px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--primary); }
+  .abc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .abc-col { background: #fff; border: 1px solid var(--border); border-top-width: 4px; border-radius: 12px; padding: 8px 10px 4px; min-width: 0; }
+  .abc-col.prio-A { border-top-color: #c0392b; }
+  .abc-col.prio-B { border-top-color: #d68910; }
+  .abc-col.prio-C { border-top-color: #7f8c8d; }
+  .abc-col .task-item { padding-left: 2px; padding-right: 2px; }
+  .abc-col .hint.empty { margin: 6px 0 10px; }
+  .done-block { margin-top: 14px; }
+  @media (max-width: 720px) { .abc-grid { grid-template-columns: 1fr; } }
+  .prio-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--hint); margin: 6px 0 4px; }
   .prio-head .prio-count { margin-left: auto; font-weight: 400; }
   .prio-badge { display: inline-block; min-width: 20px; padding: 1px 6px; margin-right: 6px; border-radius: 6px; font-size: 11.5px; font-weight: 800; text-align: center; color: #fff; }
   .prio-head .prio-badge { margin-right: 0; }
@@ -346,7 +354,7 @@
 </head>
 <body>
 <div id="app"></div>
-<script src="storage.js?v=202609211358"></script>
-<script src="app.js?v=202609211358"></script>
+<script src="storage.js?v=202609211419"></script>
+<script src="app.js?v=202609211419"></script>
 </body>
 </html>

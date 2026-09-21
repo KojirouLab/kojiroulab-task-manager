@@ -323,7 +323,7 @@ async function renderPersonPage(me) {
           <a class="switch-link" href="#" id="logoutBtn">ログアウト</a>
         </span>
       </div>
-      <p class="hint">左が自分が「受けたタスク」、右が自分が「依頼したタスク」です。重要度A→B→Cの順で、それぞれ期限が近いものから並びます。${isAdmin ? '管理者は「全員のタスク」で全員分を確認できます。' : ''}</p>
+      <p class="hint">上が自分が「受けたタスク」、下が自分が「依頼したタスク」です。それぞれ重要度A・B・Cを横に並べ、期限が近いものから上に表示します。${isAdmin ? '管理者は「全員のタスク」で全員分を確認できます。' : ''}</p>
 
       <button class="primary" id="newTaskBtn" style="margin:14px 0;">＋ タスクを依頼する</button>
 
@@ -368,7 +368,7 @@ async function renderPersonPage(me) {
     else if (mode === 'requested') who = `担当者: ${escapeHtml(employeeName(task.assignee_slug))}`;
     else who = `${escapeHtml(employeeName(task.requester_slug))} → ${escapeHtml(employeeName(task.assignee_slug))}`;
     return `<li class="task-item${overdueClass}" data-id="${task.id}" data-mode="${mode}">
-      <div class="task-title">${priorityBadgeHtml(task)}${escapeHtml(task.title)}</div>
+      <div class="task-title">${escapeHtml(task.title)}</div>
       <div class="task-meta">
         <span class="status-badge ${statusClass(task.status)}">${task.status}</span>
         ${who} ・ 期限: ${formatDueJp(task.due_date)}
@@ -376,27 +376,27 @@ async function renderPersonPage(me) {
     </li>`;
   }
 
-  // 重要度A→B→Cのグループに分け、各グループ内は期限が近い順。完了済みは最後にまとめる。
-  function groupedListHtml(tasks, mode) {
+  // 重要度A・B・Cを横3列に並べ、各列は期限が近い順。完了済み(「すべて」表示時のみ)は下にまとめる。
+  function boardHtml(tasks, mode) {
     const visible = activeFilter === 'open' ? tasks.filter((t) => t.status !== '完了') : tasks;
-    if (!visible.length) {
-      return `<p class="hint">${activeFilter === 'open' ? '未完了のタスクはありません。' : 'タスクはありません。'}</p>`;
-    }
     const open = visible.filter((t) => t.status !== '完了');
     const done = visible.filter((t) => t.status === '完了');
-    let html = '';
-    PRIORITIES.forEach((pr) => {
+    const cols = PRIORITIES.map((pr) => {
       const group = open.filter((t) => priorityOf(t) === pr).sort(byDueDate);
-      if (!group.length) return;
-      html += `<div class="prio-head prio-${pr}"><span class="prio-badge prio-${pr}">${pr}</span>重要度 ${PRIORITY_LABEL[pr]}<span class="prio-count">${group.length}件</span></div>
-        <ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>`;
-    });
-    if (done.length) {
-      const sorted = sortTasks(done);
-      html += `<div class="prio-head prio-done">完了<span class="prio-count">${done.length}件</span></div>
-        <ul class="task-list">${sorted.map((t) => taskItemHtml(t, mode)).join('')}</ul>`;
-    }
-    return html;
+      return `<div class="abc-col prio-${pr}">
+        <div class="prio-head"><span class="prio-badge prio-${pr}">${pr}</span>重要度 ${PRIORITY_LABEL[pr]}<span class="prio-count">${group.length}件</span></div>
+        ${
+          group.length
+            ? `<ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>`
+            : '<p class="hint empty">なし</p>'
+        }
+      </div>`;
+    }).join('');
+    const doneHtml = done.length
+      ? `<div class="done-block"><div class="prio-head prio-done">完了<span class="prio-count">${done.length}件</span></div>
+          <ul class="task-list">${sortTasks(done).map((t) => taskItemHtml(t, mode)).join('')}</ul></div>`
+      : '';
+    return `<div class="abc-grid">${cols}</div>${doneHtml}`;
   }
 
   function findTask(id) {
@@ -413,15 +413,14 @@ async function renderPersonPage(me) {
 
   function renderList() {
     if (activeView === 'mine') {
-      listArea.innerHTML = `<div class="two-col">
-        <section class="col"><h2>受けたタスク</h2>${groupedListHtml(receivedTasks, 'received')}</section>
-        <section class="col"><h2>依頼したタスク</h2>${groupedListHtml(requestedTasks, 'requested')}</section>
-      </div>`;
+      listArea.innerHTML = `
+        <section class="board"><h2>受けたタスク</h2>${boardHtml(receivedTasks, 'received')}</section>
+        <section class="board"><h2>依頼したタスク</h2>${boardHtml(requestedTasks, 'requested')}</section>`;
     } else {
       let tasks = allTasks;
       const who = document.getElementById('personFilter').value;
       if (who) tasks = tasks.filter((t) => t.requester_slug === who || t.assignee_slug === who);
-      listArea.innerHTML = groupedListHtml(tasks, 'all');
+      listArea.innerHTML = `<section class="board">${boardHtml(tasks, 'all')}</section>`;
     }
     listArea.querySelectorAll('.task-item').forEach((li) => {
       li.addEventListener('click', () => {
