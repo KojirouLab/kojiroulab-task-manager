@@ -129,12 +129,13 @@ async function route() {
     EMPLOYEES = await fetchEmployees();
     const want = urlSlug();
     if (want && want !== me.slug) return renderWrongPerson(me, want);
+    const googleResult = new URLSearchParams(location.search).get('google'); // ok / error(Googleの許可画面から戻った時)
     // 専用URLをアドレスバーに反映(このままブックマーク/ホーム画面に追加できる)
     history.replaceState(null, '', personalUrl(me.slug));
     document.title = `${me.name}のタスク`;
     const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
     if (meta) meta.content = `${me.name}のタスク`;
-    renderPersonPage(me);
+    renderPersonPage(me, { googleResult });
   } catch (e) {
     console.error(e);
     renderError('読み込みに失敗しました。通信状況を確認して、ページを再読み込みしてください。');
@@ -310,7 +311,7 @@ function renderError(msg) {
   app.innerHTML = `<div class="page"><div class="card"><p class="msg-error">${escapeHtml(msg)}</p></div></div>`;
 }
 
-async function renderPersonPage(me) {
+async function renderPersonPage(me, { googleResult } = {}) {
   const slug = me.slug;
   const isAdmin = !!me.is_admin;
 
@@ -319,10 +320,18 @@ async function renderPersonPage(me) {
       <div class="page-header">
         <h1>${escapeHtml(me.name)}さんのページ${isAdmin ? '<span class="admin-badge">管理者</span>' : ''}</h1>
         <span class="header-links">
+          <a class="switch-link" href="#" id="googleBtn">Googleカレンダー</a>
           <a class="switch-link" href="#" id="changePasscodeBtn">パスコード変更</a>
           <a class="switch-link" href="#" id="logoutBtn">ログアウト</a>
         </span>
       </div>
+      ${
+        googleResult === 'ok'
+          ? '<p class="msg msg-success">Googleカレンダーと連携しました。期限のあるタスクが「社内タスク」カレンダーに入ります。</p>'
+          : googleResult === 'error'
+            ? '<p class="msg msg-error">Googleカレンダーと連携できませんでした。「Googleカレンダー」からもう一度お試しください。</p>'
+            : ''
+      }
       <p class="hint">上が自分が「受けたタスク」、下が自分が「依頼したタスク」です。それぞれ重要度A・B・Cを横に並べ、期限が近いものから上に表示します。${isAdmin ? '管理者は「全員のタスク」で全員分を確認できます。' : ''}</p>
 
       <button class="primary" id="newTaskBtn" style="margin:14px 0;">＋ タスクを依頼する</button>
@@ -472,6 +481,11 @@ async function renderPersonPage(me) {
 
   document.getElementById('personFilter').addEventListener('change', renderList);
 
+  document.getElementById('googleBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    openGoogleSheet();
+  });
+
   document.getElementById('changePasscodeBtn').addEventListener('click', (e) => {
     e.preventDefault();
     renderChangePasscode(me, false);
@@ -492,6 +506,99 @@ async function renderPersonPage(me) {
   });
 
   await refreshActive();
+}
+
+// ---- Googleカレンダー連携 ----
+
+const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+
+function openGoogleSheet() {
+  const overlay = openSheet(`
+    <div class="sheet-header">
+      <h2>Googleカレンダー連携</h2>
+      <button class="sheet-close" id="gc-close">×</button>
+    </div>
+    <div id="gc-body"><p class="hint">読み込み中…</p></div>
+  `);
+  document.getElementById('gc-close').addEventListener('click', () => closeSheet(overlay));
+  const body = document.getElementById('gc-body');
+
+  async function render() {
+    let st;
+    try {
+      st = await googleStatus();
+    } catch (e) {
+      console.error(e);
+      body.innerHTML = '<p class="msg msg-error">状態を読み込めませんでした。通信状況を確認してください。</p>';
+      return;
+    }
+    if (!st.configured) {
+      body.innerHTML = '<p class="hint">Googleカレンダー連携は、まだ準備中です(管理者の設定が完了していません)。</p>';
+      return;
+    }
+    if (st.connected) {
+      body.innerHTML = `
+        <p class="msg msg-success" style="margin-top:0;">連携中です。</p>
+        <p class="hint">期限のあるタスクが、あなたのGoogleカレンダーの「社内タスク」カレンダーに、期限の日の終日の予定として入ります。
+          受けたタスクは「【重要度】タスク名」、依頼したタスクは「【依頼中】タスク名(担当: ○○)」の形です。完了すると頭に✅が付きます。</p>
+        ${st.last_synced_at ? `<p class="hint">最後の反映: ${formatDateTimeJp(st.last_synced_at)}</p>` : ''}
+        ${st.last_error ? `<p class="msg msg-error">${escapeHtml(st.last_error)}</p><button class="primary" id="gc-connect">もう一度連携する</button>` : ''}
+        <button class="secondary" id="gc-disconnect" style="margin-top:12px;">連携を解除する</button>
+        <p class="msg" id="gc-msg"></p>`;
+      document.getElementById('gc-disconnect').addEventListener('click', async () => {
+        if (!confirm('連携を解除します。Googleカレンダーの「社内タスク」カレンダーも削除されます。よろしいですか？')) return;
+        const msgEl = document.getElementById('gc-msg');
+        showMsg(msgEl, '解除しています…', false);
+        try {
+          await googleDisconnect();
+          for (let i = 0; i < 8; i++) {
+            await new Promise((r) => setTimeout(r, 1500));
+            if (!(await googleStatus()).connected) break;
+          }
+          await render();
+        } catch (e) {
+          console.error(e);
+          showMsg(msgEl, e.message || '解除できませんでした。', true);
+        }
+      });
+    } else {
+      body.innerHTML = `
+        <p class="hint" style="margin-top:0;">連携すると、期限のあるタスクが、あなたのGoogleカレンダーに終日の予定として入ります。
+          <br>・受けたタスク: 「【重要度】タスク名」
+          <br>・依頼したタスク: 「【依頼中】タスク名(担当: ○○)」
+          <br>・期限や担当の変更、キャンセルも反映され、完了すると頭に✅が付きます。
+          <br>・アプリが作る「社内タスク」カレンダーだけを操作します。他の予定は見ません。</p>
+        <p class="hint">Googleの画面で「Googleでは、このアプリを確認していません」と出た場合は、「詳細」→「(アプリ名)に移動」を押して進んでください(社内で作ったアプリのためです)。</p>
+        <button class="primary" id="gc-connect">Googleカレンダーと連携する</button>
+        <p class="msg" id="gc-msg"></p>`;
+    }
+    const connectBtn = document.getElementById('gc-connect');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        connectBtn.disabled = true;
+        try {
+          const c = await googleBeginConnect();
+          const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+          u.search = new URLSearchParams({
+            client_id: c.client_id,
+            redirect_uri: c.redirect_uri,
+            response_type: 'code',
+            scope: GOOGLE_SCOPE,
+            access_type: 'offline',
+            prompt: 'consent', // refresh_token を確実に受け取るため
+            state: c.state,
+          }).toString();
+          location.href = u.toString();
+        } catch (e) {
+          console.error(e);
+          const msgEl = document.getElementById('gc-msg');
+          if (msgEl) showMsg(msgEl, e.message || '連携を始められませんでした。', true);
+          connectBtn.disabled = false;
+        }
+      });
+    }
+  }
+  render();
 }
 
 // ---- 管理者用: メンバー管理 ----

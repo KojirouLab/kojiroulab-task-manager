@@ -126,6 +126,29 @@ async function adminResetPasscode(slug, passcode) {
   if (error) throw error;
 }
 
+// ---- Googleカレンダー連携(本人の分だけ。トークン類はサーバー側にしかない) ----
+
+async function googleStatus() {
+  assertClient();
+  const { data, error } = await sb.rpc('google_status');
+  if (error) throw error;
+  return data;
+}
+
+// 連携を始めるための使い捨てコードと、認可URLの材料(公開情報)を受け取る
+async function googleBeginConnect() {
+  assertClient();
+  const { data, error } = await sb.rpc('google_begin_connect');
+  if (error) throw error;
+  return data;
+}
+
+async function googleDisconnect() {
+  assertClient();
+  const { error } = await sb.rpc('google_disconnect');
+  if (error) throw error;
+}
+
 // ---- タスク ----
 
 async function fetchTasksByRequester(slug) {

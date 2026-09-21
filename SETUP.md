@@ -31,6 +31,25 @@ SQL Editor で、このフォルダの `supabase_admin.sql` の中身も貼り�
 
 同じ要領で、`supabase_notify.sql` も実行します(Discord通知の仕組み。次の「Discord通知の設定」も参照)。
 
+## Googleカレンダー連携の設定
+
+期限のあるタスクを、**担当者のカレンダー**(「【重要度】タスク名」)と**依頼者のカレンダー**(「【依頼中】タスク名(担当: ○○)」)に、期限の日の**終日の予定**として入れます。期限・担当の変更やキャンセルも反映され、完了すると頭に✅が付きます。アプリ → Google の**一方向**です(Google側で動かしても、アプリには戻りません)。予定は、各自のGoogleアカウントに作られる「社内タスク」カレンダー(アプリが作ったもの)にだけ書きます。
+
+`supabase_google.sql` を実行してから、次を行います。
+
+1. **Google Cloudの設定**: プロジェクトを作り、Google Calendar API を有効化。OAuth同意画面(ユーザーの種類=外部、スコープ `https://www.googleapis.com/auth/calendar.app.created`、**公開ステータスは「本番環境」**。「テスト」のままだと連携が7日で切れます)。OAuthクライアント(種類=ウェブアプリケーション)を作り、承認済みのリダイレクトURIに `https://<Supabaseのプロジェクトref>.supabase.co/functions/v1/task-google-callback` を登録。
+2. **クライアントシークレットをSupabaseに入れる**: Edge Functions > Secrets で、名前 `TASKMGR_GOOGLE_CLIENT_SECRET`。
+3. **クライアントIDをDBに登録する**(公開されても問題ない値):
+   ```sql
+   insert into google_settings (key, value) values ('client_id', 'xxxx.apps.googleusercontent.com')
+   on conflict (key) do update set value = excluded.value;
+   ```
+4. **Edge Functionをデプロイする**: `task-google-sync` と `task-google-callback` を、どちらも `--no-verify-jwt` を付けてデプロイ(`supabase/functions/_shared/` を共用しています)。
+5. **各自が連携する**: 自分のページの「Googleカレンダー」→「Googleカレンダーと連携する」で、自分のGoogleアカウントで許可します(初回は「確認されていないアプリ」の警告が出ます。「詳細」→「(アプリ名)に移動」で進みます)。連携した時点で、既存の未完了・期限ありのタスクも入ります。
+   - 連携の解除も同じ画面からできます(「社内タスク」カレンダーごと削除されます)。
+- 期限のないタスクは、期限を付けた時点でカレンダーに入ります。
+- Googleカレンダー側で予定を手動で消した場合は、次にそのタスクを変更したときに作り直されます。
+
 ## Discord通知の設定
 
 タスクの依頼・担当変更・確認済み・完了・コメント・期限(前日と期限切れ)を、関係する本人のDiscordへ**Botからのダイレクトメッセージ(DM)**で知らせます。操作した本人には送りません。
