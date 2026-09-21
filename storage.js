@@ -124,7 +124,7 @@ async function fetchAllTasks() {
   return data || [];
 }
 
-async function createTask({ title, description, requesterSlug, assigneeSlug, dueDate }) {
+async function createTask({ title, description, requesterSlug, assigneeSlug, priority, dueDate }) {
   assertClient();
   const { data, error } = await sb
     .from('tasks')
@@ -133,6 +133,7 @@ async function createTask({ title, description, requesterSlug, assigneeSlug, due
       description: description || '',
       requester_slug: requesterSlug,
       assignee_slug: assigneeSlug,
+      priority: priority || 'B',
       due_date: dueDate || null,
       status: '未確認',
     })
@@ -183,7 +184,7 @@ async function postMessage(taskId, employeeSlug, comment) {
 }
 
 // 依頼者によるタスク内容の編集。
-async function editTask(taskId, { title, description, assigneeSlug, dueDate }) {
+async function editTask(taskId, { title, description, assigneeSlug, priority, dueDate }) {
   assertClient();
   const { error } = await sb
     .from('tasks')
@@ -191,6 +192,7 @@ async function editTask(taskId, { title, description, assigneeSlug, dueDate }) {
       title,
       description: description || '',
       assignee_slug: assigneeSlug,
+      priority: priority || 'B',
       due_date: dueDate || null,
       updated_at: new Date().toISOString(),
     })

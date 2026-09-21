@@ -56,16 +56,43 @@ function isOverdue(task) {
   return !!(task.due_date && task.due_date < todayStr() && task.status !== '完了');
 }
 
+// 重要度: A(高) / B(中) / C(低)
+const PRIORITIES = ['A', 'B', 'C'];
+const PRIORITY_LABEL = { A: '高', B: '中', C: '低' };
+
+function priorityOf(task) {
+  return PRIORITIES.includes(task.priority) ? task.priority : 'B';
+}
+
+// 期限が近い順(期限なしは最後)、同じ期限なら新しく依頼された順。
+function byDueDate(a, b) {
+  const aDue = a.due_date || '9999-12-31';
+  const bDue = b.due_date || '9999-12-31';
+  if (aDue !== bDue) return aDue < bDue ? -1 : 1;
+  return new Date(b.created_at) - new Date(a.created_at);
+}
+
 function sortTasks(tasks) {
   return [...tasks].sort((a, b) => {
     const aDone = a.status === '完了' ? 1 : 0;
     const bDone = b.status === '完了' ? 1 : 0;
     if (aDone !== bDone) return aDone - bDone;
-    const aDue = a.due_date || '9999-12-31';
-    const bDue = b.due_date || '9999-12-31';
-    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
-    return new Date(b.created_at) - new Date(a.created_at);
+    const pa = PRIORITIES.indexOf(priorityOf(a));
+    const pb = PRIORITIES.indexOf(priorityOf(b));
+    if (pa !== pb) return pa - pb;
+    return byDueDate(a, b);
   });
+}
+
+function priorityBadgeHtml(task) {
+  const pr = priorityOf(task);
+  return `<span class="prio-badge prio-${pr}" title="重要度 ${PRIORITY_LABEL[pr]}">${pr}</span>`;
+}
+
+function priorityOptionsHtml(selected) {
+  return PRIORITIES.map(
+    (pr) => `<option value="${pr}"${pr === selected ? ' selected' : ''}>${pr}(重要度 ${PRIORITY_LABEL[pr]})</option>`
+  ).join('');
 }
 
 // その人専用のURL(?u=slug)。ブックマーク/ホーム画面に追加してもらうためのもの。
@@ -288,7 +315,7 @@ async function renderPersonPage(me) {
   const isAdmin = !!me.is_admin;
 
   app.innerHTML = `
-    <div class="page">
+    <div class="page wide">
       <div class="page-header">
         <h1>${escapeHtml(me.name)}さんのページ${isAdmin ? '<span class="admin-badge">管理者</span>' : ''}</h1>
         <span class="header-links">
@@ -296,15 +323,19 @@ async function renderPersonPage(me) {
           <a class="switch-link" href="#" id="logoutBtn">ログアウト</a>
         </span>
       </div>
-      <p class="hint">自分が「受けたタスク」と「依頼したタスク」をここでまとめて管理できます。${isAdmin ? '管理者は「全員のタスク」で全員分を確認できます。' : ''}</p>
+      <p class="hint">左が自分が「受けたタスク」、右が自分が「依頼したタスク」です。重要度A→B→Cの順で、それぞれ期限が近いものから並びます。${isAdmin ? '管理者は「全員のタスク」で全員分を確認できます。' : ''}</p>
 
       <button class="primary" id="newTaskBtn" style="margin:14px 0;">＋ タスクを依頼する</button>
 
-      <div class="view-tabs${isAdmin ? ' many' : ''}">
-        <button class="view-tab sel" data-tab="received">受けたタスク</button>
-        <button class="view-tab" data-tab="requested">依頼したタスク</button>
-        ${isAdmin ? '<button class="view-tab" data-tab="all">全員のタスク</button><button class="view-tab" data-tab="members">メンバー管理</button>' : ''}
-      </div>
+      ${
+        isAdmin
+          ? `<div class="view-tabs many">
+        <button class="view-tab sel" data-tab="mine">自分のタスク</button>
+        <button class="view-tab" data-tab="all">全員のタスク</button>
+        <button class="view-tab" data-tab="members">メンバー管理</button>
+      </div>`
+          : ''
+      }
 
       <div class="filter-row" id="filterRow">
         <button class="filter-chip sel" data-filter="open">未完了</button>
@@ -320,36 +351,24 @@ async function renderPersonPage(me) {
       <div id="taskListArea"><p class="hint">読み込み中…</p></div>
     </div>`;
 
-  let activeTab = 'received';
+  let activeView = 'mine'; // mine | all | members
   let activeFilter = 'open';
   let receivedTasks = [];
   let requestedTasks = [];
   let allTasks = [];
 
+  const pageEl = app.querySelector('.page');
   const listArea = document.getElementById('taskListArea');
 
-  function currentTasks() {
-    if (activeTab === 'all') return allTasks;
-    return activeTab === 'received' ? receivedTasks : requestedTasks;
-  }
-
-  // 詳細画面での立場。自分が担当者/依頼者ならその操作ができ、どちらでもなければ(管理者の閲覧)閲覧のみ。
-  function roleFor(task) {
-    if (activeTab === 'received') return 'assignee';
-    if (activeTab === 'requested') return 'requester';
-    if (task.assignee_slug === slug) return 'assignee';
-    if (task.requester_slug === slug) return 'requester';
-    return 'viewer';
-  }
-
-  function taskItemHtml(task) {
+  // mode: received(受けた) / requested(依頼した) / all(全員)。詳細画面での立場と、表示する相手の名前が変わる。
+  function taskItemHtml(task, mode) {
     const overdueClass = isOverdue(task) ? ' overdue' : '';
     let who;
-    if (activeTab === 'received') who = `依頼者: ${escapeHtml(employeeName(task.requester_slug))}`;
-    else if (activeTab === 'requested') who = `担当者: ${escapeHtml(employeeName(task.assignee_slug))}`;
+    if (mode === 'received') who = `依頼者: ${escapeHtml(employeeName(task.requester_slug))}`;
+    else if (mode === 'requested') who = `担当者: ${escapeHtml(employeeName(task.assignee_slug))}`;
     else who = `${escapeHtml(employeeName(task.requester_slug))} → ${escapeHtml(employeeName(task.assignee_slug))}`;
-    return `<li class="task-item${overdueClass}" data-id="${task.id}">
-      <div class="task-title">${escapeHtml(task.title)}</div>
+    return `<li class="task-item${overdueClass}" data-id="${task.id}" data-mode="${mode}">
+      <div class="task-title">${priorityBadgeHtml(task)}${escapeHtml(task.title)}</div>
       <div class="task-meta">
         <span class="status-badge ${statusClass(task.status)}">${task.status}</span>
         ${who} ・ 期限: ${formatDueJp(task.due_date)}
@@ -357,23 +376,57 @@ async function renderPersonPage(me) {
     </li>`;
   }
 
+  // 重要度A→B→Cのグループに分け、各グループ内は期限が近い順。完了済みは最後にまとめる。
+  function groupedListHtml(tasks, mode) {
+    const visible = activeFilter === 'open' ? tasks.filter((t) => t.status !== '完了') : tasks;
+    if (!visible.length) {
+      return `<p class="hint">${activeFilter === 'open' ? '未完了のタスクはありません。' : 'タスクはありません。'}</p>`;
+    }
+    const open = visible.filter((t) => t.status !== '完了');
+    const done = visible.filter((t) => t.status === '完了');
+    let html = '';
+    PRIORITIES.forEach((pr) => {
+      const group = open.filter((t) => priorityOf(t) === pr).sort(byDueDate);
+      if (!group.length) return;
+      html += `<div class="prio-head prio-${pr}"><span class="prio-badge prio-${pr}">${pr}</span>重要度 ${PRIORITY_LABEL[pr]}<span class="prio-count">${group.length}件</span></div>
+        <ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>`;
+    });
+    if (done.length) {
+      const sorted = sortTasks(done);
+      html += `<div class="prio-head prio-done">完了<span class="prio-count">${done.length}件</span></div>
+        <ul class="task-list">${sorted.map((t) => taskItemHtml(t, mode)).join('')}</ul>`;
+    }
+    return html;
+  }
+
+  function findTask(id) {
+    return [...receivedTasks, ...requestedTasks, ...allTasks].find((t) => String(t.id) === id);
+  }
+
+  function roleFor(task, mode) {
+    if (mode === 'received') return 'assignee';
+    if (mode === 'requested') return 'requester';
+    if (task.assignee_slug === slug) return 'assignee';
+    if (task.requester_slug === slug) return 'requester';
+    return 'viewer';
+  }
+
   function renderList() {
-    let tasks = currentTasks();
-    if (activeFilter === 'open') tasks = tasks.filter((t) => t.status !== '完了');
-    if (activeTab === 'all') {
+    if (activeView === 'mine') {
+      listArea.innerHTML = `<div class="two-col">
+        <section class="col"><h2>受けたタスク</h2>${groupedListHtml(receivedTasks, 'received')}</section>
+        <section class="col"><h2>依頼したタスク</h2>${groupedListHtml(requestedTasks, 'requested')}</section>
+      </div>`;
+    } else {
+      let tasks = allTasks;
       const who = document.getElementById('personFilter').value;
       if (who) tasks = tasks.filter((t) => t.requester_slug === who || t.assignee_slug === who);
+      listArea.innerHTML = groupedListHtml(tasks, 'all');
     }
-    tasks = sortTasks(tasks);
-    if (!tasks.length) {
-      listArea.innerHTML = `<p class="hint">${activeFilter === 'open' ? '未完了のタスクはありません。' : 'タスクはありません。'}</p>`;
-      return;
-    }
-    listArea.innerHTML = `<ul class="task-list">${tasks.map(taskItemHtml).join('')}</ul>`;
     listArea.querySelectorAll('.task-item').forEach((li) => {
       li.addEventListener('click', () => {
-        const task = currentTasks().find((t) => String(t.id) === li.dataset.id);
-        if (task) openTaskDetail(task, roleFor(task), me, { onChanged: refreshActive });
+        const task = findTask(li.dataset.id);
+        if (task) openTaskDetail(task, roleFor(task, li.dataset.mode), me, { onChanged: refreshActive });
       });
     });
   }
@@ -381,14 +434,12 @@ async function renderPersonPage(me) {
   async function refreshActive() {
     listArea.innerHTML = '<p class="hint">読み込み中…</p>';
     try {
-      if (activeTab === 'members') {
+      if (activeView === 'members') {
         await renderMembers(listArea, me);
         return;
       }
-      if (activeTab === 'received') {
-        receivedTasks = await fetchTasksByAssignee(slug);
-      } else if (activeTab === 'requested') {
-        requestedTasks = await fetchTasksByRequester(slug);
+      if (activeView === 'mine') {
+        [receivedTasks, requestedTasks] = await Promise.all([fetchTasksByAssignee(slug), fetchTasksByRequester(slug)]);
       } else {
         allTasks = await fetchAllTasks();
       }
@@ -403,9 +454,10 @@ async function renderPersonPage(me) {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.view-tab').forEach((b) => b.classList.remove('sel'));
       btn.classList.add('sel');
-      activeTab = btn.dataset.tab;
-      document.getElementById('personFilterField').style.display = activeTab === 'all' ? '' : 'none';
-      document.getElementById('filterRow').style.display = activeTab === 'members' ? 'none' : '';
+      activeView = btn.dataset.tab;
+      pageEl.classList.toggle('wide', activeView === 'mine');
+      document.getElementById('personFilterField').style.display = activeView === 'all' ? '' : 'none';
+      document.getElementById('filterRow').style.display = activeView === 'members' ? 'none' : '';
       refreshActive();
     });
   });
@@ -688,6 +740,10 @@ function openNewTaskSheet(me, { onCreated }) {
       <select id="nt-assignee">${assigneeOptions}</select>
     </div>
     <div class="field">
+      <label for="nt-priority">重要度</label>
+      <select id="nt-priority">${priorityOptionsHtml('B')}</select>
+    </div>
+    <div class="field">
       <label for="nt-due">期限(任意)</label>
       <input id="nt-due" type="date">
     </div>
@@ -719,6 +775,7 @@ function openNewTaskSheet(me, { onCreated }) {
         description: document.getElementById('nt-desc').value.trim(),
         requesterSlug: me.slug,
         assigneeSlug: document.getElementById('nt-assignee').value,
+        priority: document.getElementById('nt-priority').value,
         dueDate: document.getElementById('nt-due').value,
       });
       closeSheet(overlay);
@@ -740,6 +797,7 @@ async function openTaskDetail(task, role, me, { onChanged }) {
     </div>
     <p class="sheet-sub">
       <span class="status-badge ${statusClass(task.status)}">${task.status}</span>
+      ${priorityBadgeHtml(task)} 重要度 ${PRIORITY_LABEL[priorityOf(task)]}
       ／ 依頼者: ${escapeHtml(employeeName(task.requester_slug))} ／ 担当者: ${escapeHtml(employeeName(task.assignee_slug))}
       ／ 期限: ${formatDueJp(task.due_date)}
     </p>
@@ -929,6 +987,10 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
       <select id="et-assignee">${assigneeOptions}</select>
     </div>
     <div class="field">
+      <label for="et-priority">重要度</label>
+      <select id="et-priority">${priorityOptionsHtml(priorityOf(task))}</select>
+    </div>
+    <div class="field">
       <label for="et-due">期限</label>
       <input id="et-due" type="date" value="${task.due_date || ''}">
     </div>
@@ -964,6 +1026,7 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
         title,
         description: document.getElementById('et-desc').value.trim(),
         assigneeSlug: document.getElementById('et-assignee').value,
+        priority: document.getElementById('et-priority').value,
         dueDate: document.getElementById('et-due').value,
       });
       onEdited();
