@@ -65,7 +65,8 @@ async function fetchCurrentEmployee() {
 // ログイン後に読める社員一覧(担当者の選択肢用)
 async function fetchEmployees() {
   assertClient();
-  const { data, error } = await sb.from('employees').select('slug, name, is_admin, active').order('sort_order').order('name');
+  // discord_user_id なども含める(担当者の選択と、管理者のメンバー管理で使う)
+  const { data, error } = await sb.from('employees').select('*').order('sort_order').order('name');
   if (error) throw error;
   return data || [];
 }
@@ -92,6 +93,31 @@ async function adminUpdateEmployee({ slug, name, isAdmin, active }) {
     p_active: !!active,
   });
   if (error) throw error;
+}
+
+async function adminSetDiscord(slug, discordUserId) {
+  assertClient();
+  const { error } = await sb.rpc('admin_set_discord', { p_slug: slug, p_discord_user_id: discordUserId });
+  if (error) throw error;
+}
+
+async function adminSendTestNotification(slug) {
+  assertClient();
+  const { error } = await sb.rpc('admin_send_test_notification', { p_slug: slug });
+  if (error) throw error;
+}
+
+// その人宛ての通知の最新の記録(成功/失敗)。管理者だけが読める。
+async function fetchLatestNotifyLog(slug) {
+  assertClient();
+  const { data, error } = await sb
+    .from('notify_log')
+    .select('created_at, event, ok, detail')
+    .eq('to_slug', slug)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
 }
 
 async function adminResetPasscode(slug, passcode) {

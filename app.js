@@ -512,7 +512,7 @@ async function renderMembers(container, me) {
       (e.active === false ? '<span class="admin-badge off">利用停止中</span>' : '');
     return `<li class="task-item${e.active === false ? ' inactive' : ''}" data-slug="${escapeHtml(e.slug)}">
       <div class="task-title">${escapeHtml(e.name)}${badges}</div>
-      <div class="task-meta">ログインID: ${escapeHtml(e.slug)}</div>
+      <div class="task-meta">ログインID: ${escapeHtml(e.slug)} ・ Discord通知: ${e.discord_user_id ? '登録済み' : '未登録'}</div>
     </li>`;
   }).join('');
   container.innerHTML = `
@@ -640,6 +640,15 @@ function openEditMemberSheet(emp, me, { onDone }) {
     <button class="primary" id="em-save">変更を保存する</button>
     <p class="msg" id="em-msg"></p>
     <hr class="sep">
+    <h2 style="font-size:14px;">Discord通知</h2>
+    <p class="hint">依頼・確認済み・完了・コメント・期限を、本人のDiscordへDMで知らせます。本人のDiscordユーザーID(数字17〜19桁)を登録してください。Discordの「ユーザー設定 → 詳細設定」で「開発者モード」をオンにして、サーバーのメンバー一覧で本人の名前を右クリック →「ユーザーIDをコピー」で取得できます。</p>
+    <div class="field">
+      <input id="em-discord" type="text" inputmode="numeric" autocomplete="off" placeholder="例) 123456789012345678" value="${escapeHtml(emp.discord_user_id || '')}">
+    </div>
+    <button class="ghost" id="em-dsave" style="width:100%;">DiscordユーザーIDを保存する</button>
+    <button class="secondary" id="em-dtest" style="margin-top:8px;">テスト通知を送る</button>
+    <p class="msg" id="em-dmsg"></p>
+    <hr class="sep">
     <h2 style="font-size:14px;">パスコードのリセット</h2>
     <p class="hint">忘れた場合などに、仮のパスコードを設定し直します。本人は次回ログイン時に、また自分のパスコードを決め直します。ログイン中の端末は、ログアウトされます。</p>
     <div class="field">
@@ -654,6 +663,55 @@ function openEditMemberSheet(emp, me, { onDone }) {
     closeSheet(overlay);
     onDone();
   });
+  document.getElementById('em-dsave').addEventListener('click', async () => {
+    const msgEl = document.getElementById('em-dmsg');
+    const btn = document.getElementById('em-dsave');
+    btn.disabled = true;
+    showMsg(msgEl, '保存中…', false);
+    try {
+      await adminSetDiscord(emp.slug, document.getElementById('em-discord').value);
+      emp.discord_user_id = document.getElementById('em-discord').value.trim() || null;
+      showMsg(msgEl, emp.discord_user_id ? '保存しました。「テスト通知を送る」で届くか確認してください。' : '登録を解除しました。', false);
+      msgEl.className = 'msg msg-success';
+    } catch (e) {
+      console.error(e);
+      showMsg(msgEl, e.message || '保存できませんでした。', true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('em-dtest').addEventListener('click', async () => {
+    const msgEl = document.getElementById('em-dmsg');
+    const btn = document.getElementById('em-dtest');
+    btn.disabled = true;
+    showMsg(msgEl, '送信を依頼しました。結果を確認しています…', false);
+    const startedAt = Date.now();
+    try {
+      await adminSendTestNotification(emp.slug);
+      // 通知は非同期で送られるので、記録が付くまで数秒待って結果を見る
+      let log = null;
+      for (let i = 0; i < 6 && !log; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const latest = await fetchLatestNotifyLog(emp.slug);
+        if (latest && new Date(latest.created_at).getTime() >= startedAt - 5000) log = latest;
+      }
+      if (!log) {
+        showMsg(msgEl, '結果をまだ確認できません。少し待ってからもう一度お試しください(Discordを直接見ても構いません)。', true);
+      } else if (log.ok) {
+        showMsg(msgEl, `${emp.name}さんのDiscordにDMを送りました。届いているか確認してください。`, false);
+        msgEl.className = 'msg msg-success';
+      } else {
+        showMsg(msgEl, `送れませんでした: ${log.detail}`, true);
+      }
+    } catch (e) {
+      console.error(e);
+      showMsg(msgEl, e.message || '送信できませんでした。', true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('em-copy').addEventListener('click', async () => {
     const ok = await copyText(personalUrl(emp.slug), document.getElementById('em-url'));
     showMsg(document.getElementById('em-copymsg'), ok ? 'コピーしました。' : 'コピーできませんでした。URLを長押しでコピーしてください。', !ok);
