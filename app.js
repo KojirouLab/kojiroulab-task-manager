@@ -68,12 +68,45 @@ function sortTasks(tasks) {
   });
 }
 
+// その人専用のURL(?u=slug)。ブックマーク/ホーム画面に追加してもらうためのもの。
+function personalUrl(slug) {
+  return `${location.origin}${location.pathname}?u=${encodeURIComponent(slug)}`;
+}
+
+function urlSlug() {
+  return new URLSearchParams(location.search).get('u');
+}
+
+async function copyText(text, inputEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    if (inputEl) {
+      inputEl.select();
+      try {
+        return document.execCommand('copy');
+      } catch (e2) {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
 async function route() {
   try {
     const me = await fetchCurrentEmployee();
-    if (!me) return renderLogin();
+    if (!me) return renderLogin(urlSlug());
     if (me.mustChangePasscode) return renderChangePasscode(me, true);
     EMPLOYEES = await fetchEmployees();
+    const want = urlSlug();
+    if (want && want !== me.slug) return renderWrongPerson(me, want);
+    // 専用URLをアドレスバーに反映(このままブックマーク/ホーム画面に追加できる)
+    history.replaceState(null, '', personalUrl(me.slug));
+    document.title = `${me.name}のタスク`;
+    const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (meta) meta.content = `${me.name}のタスク`;
     renderPersonPage(me);
   } catch (e) {
     console.error(e);
@@ -81,16 +114,59 @@ async function route() {
   }
 }
 
-async function renderLogin() {
+// 他の人の専用URLを、別の人がログインした状態で開いた時
+function renderWrongPerson(me, wantSlug) {
+  const target = findEmployee(wantSlug);
+  const targetName = target ? target.name : wantSlug;
   app.innerHTML = `
     <div class="page">
       <h1>社内タスク管理</h1>
       <div class="card">
+        <p style="margin-top:0;">このURLは<b>${escapeHtml(targetName)}さん専用</b>のページです。<br>現在は<b>${escapeHtml(me.name)}さん</b>でログインしています。</p>
+        <button class="primary" id="wp-mine">${escapeHtml(me.name)}さんのページを開く</button>
+        <button class="secondary" id="wp-switch" style="margin-top:8px;">ログアウトして${escapeHtml(targetName)}さんとしてログインする</button>
+      </div>
+    </div>`;
+  document.getElementById('wp-mine').addEventListener('click', () => {
+    location.href = personalUrl(me.slug);
+  });
+  document.getElementById('wp-switch').addEventListener('click', async () => {
+    await logout();
+    route();
+  });
+}
+
+// presetSlug がある(専用URLから来た)時は「○○さん専用」の画面で、パスコードだけを入力する。
+async function renderLogin(presetSlug) {
+  app.innerHTML = `<div class="page"><h1>社内タスク管理</h1><p class="hint">読み込み中…</p></div>`;
+
+  let list = [];
+  try {
+    list = await fetchDirectory();
+  } catch (e) {
+    console.error(e);
+    return renderError('名前の一覧を読み込めませんでした。通信状況を確認して再読み込みしてください。');
+  }
+  const preset = presetSlug ? list.find((e) => e.slug === presetSlug) : null;
+  const unknownPreset = presetSlug && !preset;
+
+  const userField = preset
+    ? `<p style="margin:0 0 14px;font-size:17px;font-weight:700;">${escapeHtml(preset.name)}さん</p>`
+    : `<div class="field">
+         <label for="lg-user">名前</label>
+         <select id="lg-user">
+           <option value="">選択してください</option>
+           ${list.map((e) => `<option value="${escapeHtml(e.slug)}">${escapeHtml(e.name)}</option>`).join('')}
+         </select>
+       </div>`;
+
+  app.innerHTML = `
+    <div class="page">
+      <h1>${preset ? `${escapeHtml(preset.name)}さん専用ページ` : '社内タスク管理'}</h1>
+      ${unknownPreset ? '<p class="msg msg-error">このURLは利用できません。下から名前を選んでログインするか、管理者にお問い合わせください。</p>' : ''}
+      <div class="card">
         <h2>ログイン</h2>
-        <div class="field">
-          <label for="lg-user">名前</label>
-          <select id="lg-user"><option value="">読み込み中…</option></select>
-        </div>
+        ${userField}
         <div class="field">
           <label for="lg-pass">パスコード</label>
           <input id="lg-pass" type="password" autocomplete="current-password">
@@ -98,28 +174,21 @@ async function renderLogin() {
         <button class="primary" id="lg-submit">ログイン</button>
         <p class="msg" id="lg-msg"></p>
       </div>
-      <p class="hint">パスコードは管理者から伝えられたものを入力してください。一度ログインすると、この端末では次回から自動でログインされます。</p>
+      <p class="hint">${
+        preset
+          ? `${escapeHtml(preset.name)}さんのパスコードを入力してください。このページをブックマーク(ホーム画面に追加)しておくと、次回から自分のページがすぐ開けます。<br><a href="${location.pathname}" style="color:inherit;">別の人としてログインする</a>`
+          : 'パスコードは管理者から伝えられたものを入力してください。一度ログインすると、この端末では次回から自動でログインされます。'
+      }</p>
     </div>`;
 
   const userEl = document.getElementById('lg-user');
   const passEl = document.getElementById('lg-pass');
   const msgEl = document.getElementById('lg-msg');
   const btn = document.getElementById('lg-submit');
-
-  try {
-    const list = await fetchDirectory();
-    userEl.innerHTML =
-      '<option value="">選択してください</option>' +
-      list.map((e) => `<option value="${escapeHtml(e.slug)}">${escapeHtml(e.name)}</option>`).join('');
-  } catch (e) {
-    console.error(e);
-    msgEl.textContent = '名前の一覧を読み込めませんでした。通信状況を確認して再読み込みしてください。';
-    msgEl.className = 'msg msg-error';
-    return;
-  }
+  const chosenSlug = () => (preset ? preset.slug : userEl.value);
 
   async function submit() {
-    if (!userEl.value || !passEl.value) {
+    if (!chosenSlug() || !passEl.value) {
       msgEl.textContent = '名前とパスコードを入力してください。';
       msgEl.className = 'msg msg-error';
       return;
@@ -128,7 +197,9 @@ async function renderLogin() {
     msgEl.textContent = 'ログイン中…';
     msgEl.className = 'msg';
     try {
-      await loginWithPasscode(userEl.value, passEl.value);
+      await loginWithPasscode(chosenSlug(), passEl.value);
+      // 名前を選んでログインした場合も、その人の専用URLに移す
+      if (!preset && urlSlug() !== chosenSlug()) history.replaceState(null, '', personalUrl(chosenSlug()));
       route();
     } catch (e) {
       console.error(e);
@@ -467,9 +538,17 @@ function openAddMemberSheet({ onDone }) {
           <div class="hint">名前</div><div style="font-weight:700;">${escapeHtml(name)}</div>
           <div class="hint" style="margin-top:8px;">仮のパスコード</div>
           <div style="font-weight:700;font-size:20px;letter-spacing:1px;">${escapeHtml(passcode)}</div>
+          <div class="hint" style="margin-top:8px;">${escapeHtml(name)}さん専用のURL</div>
+          <input id="am-url" type="text" readonly value="${escapeHtml(personalUrl(slug))}" style="margin-top:4px;">
+          <button class="ghost" id="am-copy" style="margin-top:6px;">URLをコピー</button>
+          <p class="msg" id="am-copymsg"></p>
         </div>
         <p class="hint">この画面を閉じると、仮のパスコードは二度と表示できません。本人にだけ伝えてください(初回ログイン時に、本人が自分のパスコードへ変更します)。</p>
         <button class="primary" id="am-done">閉じる</button>`;
+      document.getElementById('am-copy').addEventListener('click', async () => {
+        const ok = await copyText(personalUrl(slug), document.getElementById('am-url'));
+        showMsg(document.getElementById('am-copymsg'), ok ? 'コピーしました。' : 'コピーできませんでした。URLを長押しでコピーしてください。', !ok);
+      });
       document.getElementById('am-done').addEventListener('click', () => {
         closeSheet(overlay);
         onDone();
@@ -490,6 +569,12 @@ function openEditMemberSheet(emp, me, { onDone }) {
       <button class="sheet-close" id="em-close">×</button>
     </div>
     <p class="sheet-sub">ログインID: ${escapeHtml(emp.slug)}${isSelf ? ' ／ ご自身' : ''}</p>
+    <div class="field">
+      <label for="em-url">${escapeHtml(emp.name)}さん専用のURL(本人にブックマーク/ホーム画面への追加をお願いしてください)</label>
+      <input id="em-url" type="text" readonly value="${escapeHtml(personalUrl(emp.slug))}">
+      <button class="ghost" id="em-copy" style="margin-top:6px;">URLをコピー</button>
+      <p class="msg" id="em-copymsg"></p>
+    </div>
     <div class="field">
       <label for="em-name">名前</label>
       <input id="em-name" type="text" value="${escapeHtml(emp.name)}">
@@ -517,6 +602,10 @@ function openEditMemberSheet(emp, me, { onDone }) {
   document.getElementById('em-close').addEventListener('click', () => {
     closeSheet(overlay);
     onDone();
+  });
+  document.getElementById('em-copy').addEventListener('click', async () => {
+    const ok = await copyText(personalUrl(emp.slug), document.getElementById('em-url'));
+    showMsg(document.getElementById('em-copymsg'), ok ? 'コピーしました。' : 'コピーできませんでした。URLを長押しでコピーしてください。', !ok);
   });
   document.getElementById('em-regen').addEventListener('click', () => {
     document.getElementById('em-pass').value = generatePasscode();
