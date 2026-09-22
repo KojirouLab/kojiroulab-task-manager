@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>プライバシーポリシー - 社内タスク管理</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif; color: #2a2a28; background: #f7f7f5; margin: 0; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; line-height: 1.8; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 28px; border-bottom: 2px solid #0d6b58; padding-bottom: 4px; }
+  a { color: #0d6b58; }
+  .note { color: #767671; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>プライバシーポリシー</h1>
+  <p>「社内タスク管理」(以下「本アプリ」)は、社内でのタスクの依頼・確認・完了の報告を管理するための業務用アプリです。本アプリは、管理者が登録した社員のみが利用できます。本ポリシーは、本アプリが扱う情報と、その使いみちを説明するものです。</p>
+
+  <h2>1. 取得・保存する情報</h2>
+  <ul>
+    <li>社員の名前、ログインID、パスコード(暗号化された形で保存され、管理者にも見えません)</li>
+    <li>タスクの内容(タイトル、メモ、担当者、依頼者、重要度、期限、ステータス)と、タスクに付けられたコメント・更新の履歴</li>
+    <li>Googleカレンダー連携を利用した場合: Googleアカウントの認可情報(更新トークン)と、本アプリが作成した「社内タスク」カレンダーの識別情報</li>
+  </ul>
+
+  <h2>2. 情報の利用目的</h2>
+  <p>取得した情報は、本アプリの機能(タスクの依頼・管理・表示、および利用者が希望した場合のGoogleカレンダーへの予定の登録)を提供する目的にのみ利用します。広告、販売、その他の目的には利用しません。</p>
+
+  <h2>3. Googleカレンダー連携について(Google APIサービス)</h2>
+  <ul>
+    <li>連携は、利用者本人が「Googleカレンダーと連携する」を押し、Googleの画面で許可した場合にのみ行われます。</li>
+    <li>要求する権限は <code>calendar.app.created</code> のみです。これは、本アプリ自身が作成した「社内タスク」カレンダーと、その中の予定だけを操作する権限で、利用者のほかのカレンダーや予定を見たり変更したりすることはできません。</li>
+    <li>「社内タスク」カレンダーには、期限のあるタスクを終日の予定として登録・更新・削除します(担当者と依頼者のカレンダーが対象です)。</li>
+    <li>Googleから取得した情報を、上記の機能の提供以外の目的で使用・第三者へ提供・移転・販売することはありません。人が閲覧すること(サポート等のため利用者が同意した場合や、法令上必要な場合を除く)もありません。</li>
+    <li>本アプリによるGoogleユーザーデータの利用と他のアプリへの転送は、<a href="https://developers.google.com/terms/api-services-user-data-policy">Google API サービスのユーザーデータに関するポリシー</a>(限定的な使用の要件を含む)に準拠します。</li>
+    <li>連携は、本アプリの「Googleカレンダー」画面からいつでも解除できます。解除すると、本アプリが作成した「社内タスク」カレンダーは削除され、更新トークンは取り消されて、本アプリからも削除されます。Googleアカウントの設定画面からも、本アプリへのアクセス許可を取り消せます。</li>
+  </ul>
+
+  <h2>4. 情報の第三者への提供</h2>
+  <p>法令に基づく場合を除き、取得した情報を第三者に提供しません。なお、データの保管には、データベースサービス(Supabase)を利用しています。</p>
+
+  <h2>5. 情報の管理と削除</h2>
+  <p>情報は、認証された利用者のみが、自分に関係する範囲で閲覧できるように管理されています。管理者は、利用者の利用を停止できます。情報の削除を希望する場合は、下記の連絡先までご連絡ください。</p>
+
+  <h2>6. お問い合わせ</h2>
+  <p>本アプリの運営者(管理者): <a href="mailto:masa.ikuei@gmail.com">masa.ikuei@gmail.com</a></p>
+
+  <p class="note">制定日: 2026年9月22日</p>
+</main>
+</body>
+</html>
