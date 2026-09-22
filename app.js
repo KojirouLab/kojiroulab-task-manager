@@ -770,6 +770,27 @@ function openEditMemberSheet(emp, me, { onDone }) {
     closeSheet(overlay);
     onDone();
   });
+  async function runTestNotification(msgEl) {
+    showMsg(msgEl, '送信を依頼しました。結果を確認しています…', false);
+    const startedAt = Date.now();
+    await adminSendTestNotification(emp.slug);
+    // 通知は非同期で送られるので、記録が付くまで数秒待って結果を見る
+    let log = null;
+    for (let i = 0; i < 6 && !log; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const latest = await fetchLatestNotifyLog(emp.slug);
+      if (latest && new Date(latest.created_at).getTime() >= startedAt - 5000) log = latest;
+    }
+    if (!log) {
+      showMsg(msgEl, '結果をまだ確認できません。少し待ってからもう一度お試しください(Discordを直接見ても構いません)。', true);
+    } else if (log.ok) {
+      showMsg(msgEl, `${emp.name}さんのDiscordにDMを送りました。届いているか確認してください。`, false);
+      msgEl.className = 'msg msg-success';
+    } else {
+      showMsg(msgEl, `送れませんでした: ${log.detail}`, true);
+    }
+  }
+
   document.getElementById('em-dsave').addEventListener('click', async () => {
     const msgEl = document.getElementById('em-dmsg');
     const btn = document.getElementById('em-dsave');
@@ -778,8 +799,13 @@ function openEditMemberSheet(emp, me, { onDone }) {
     try {
       await adminSetDiscord(emp.slug, document.getElementById('em-discord').value);
       emp.discord_user_id = document.getElementById('em-discord').value.trim() || null;
-      showMsg(msgEl, emp.discord_user_id ? '保存しました。「テスト通知を送る」で届くか確認してください。' : '登録を解除しました。', false);
-      msgEl.className = 'msg msg-success';
+      if (emp.discord_user_id) {
+        showMsg(msgEl, '保存しました。テスト通知を送っています…', false);
+        await runTestNotification(msgEl);
+      } else {
+        showMsg(msgEl, '登録を解除しました。', false);
+        msgEl.className = 'msg msg-success';
+      }
     } catch (e) {
       console.error(e);
       showMsg(msgEl, e.message || '保存できませんでした。', true);
@@ -792,25 +818,8 @@ function openEditMemberSheet(emp, me, { onDone }) {
     const msgEl = document.getElementById('em-dmsg');
     const btn = document.getElementById('em-dtest');
     btn.disabled = true;
-    showMsg(msgEl, '送信を依頼しました。結果を確認しています…', false);
-    const startedAt = Date.now();
     try {
-      await adminSendTestNotification(emp.slug);
-      // 通知は非同期で送られるので、記録が付くまで数秒待って結果を見る
-      let log = null;
-      for (let i = 0; i < 6 && !log; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const latest = await fetchLatestNotifyLog(emp.slug);
-        if (latest && new Date(latest.created_at).getTime() >= startedAt - 5000) log = latest;
-      }
-      if (!log) {
-        showMsg(msgEl, '結果をまだ確認できません。少し待ってからもう一度お試しください(Discordを直接見ても構いません)。', true);
-      } else if (log.ok) {
-        showMsg(msgEl, `${emp.name}さんのDiscordにDMを送りました。届いているか確認してください。`, false);
-        msgEl.className = 'msg msg-success';
-      } else {
-        showMsg(msgEl, `送れませんでした: ${log.detail}`, true);
-      }
+      await runTestNotification(msgEl);
     } catch (e) {
       console.error(e);
       showMsg(msgEl, e.message || '送信できませんでした。', true);
