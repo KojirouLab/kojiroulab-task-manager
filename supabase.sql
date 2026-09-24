@@ -92,14 +92,20 @@ create policy "task_updates insert" on task_updates for insert to authenticated
   with check (
     employee_slug = current_slug()
     and exists (select 1 from tasks t where t.id = task_id)
-    -- ステータス変更ログは担当者だけが残せる(コメントだけなら見えるタスクなら誰でも可、管理者含む)
-    and (status is null or exists (select 1 from tasks t where t.id = task_id and t.assignee_slug = current_slug()))
+    -- ステータス変更ログを残せるのは、担当者(確認・完了どちらも)、または
+    -- 依頼者が完了にする場合のみ(コメントだけなら見えるタスクなら誰でも可、管理者含む)。
+    and (
+      status is null
+      or exists (select 1 from tasks t where t.id = task_id and t.assignee_slug = current_slug())
+      or (status = '完了' and exists (select 1 from tasks t where t.id = task_id and t.requester_slug = current_slug()))
+    )
   );
 
 -- ============ 更新できる項目の制限 ============
 -- RLS は列単位で制限できないため、トリガーで守る:
 --   ・依頼者だけが 内容/担当者/期限/メモ を変えられる(依頼者そのものは変更不可)
---   ・担当者だけが ステータス/完了日時 を変えられる
+--   ・担当者は ステータス/完了日時 を自由に変えられる(確認・完了どちらも)
+--   ・依頼者も「完了」にする(完了日時を入れる)ことだけはできる
 -- SQL Editor などJWTなしの操作(current_slug() が null)は制限しない。
 
 create or replace function tasks_update_guard() returns trigger
@@ -118,10 +124,14 @@ begin
   ) then
     raise exception 'タスクの内容を変更できるのは依頼者だけです';
   end if;
-  if me <> old.assignee_slug and (
-    new.status <> old.status or new.completed_at is distinct from old.completed_at
-  ) then
-    raise exception 'ステータスを変更できるのは担当者だけです';
+  if new.status <> old.status or new.completed_at is distinct from old.completed_at then
+    if me = old.assignee_slug then
+      null; -- 担当者は確認・完了どちらも可能
+    elsif me = old.requester_slug and new.status = '完了' then
+      null; -- 依頼者は完了にすることだけ可能
+    else
+      raise exception 'ステータスを変更できるのは担当者、または完了にする場合は依頼者だけです';
+    end if;
   end if;
   return new;
 end $$;

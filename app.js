@@ -1150,7 +1150,11 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
   const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false || e.slug === task.assignee_slug)
     .map((e) => `<option value="${e.slug}"${e.slug === task.assignee_slug ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
     .join('');
+  const completeButtonHtml =
+    task.status !== '完了' ? `<button class="primary" id="rq-completeBtn" style="width:100%;">完了にする</button><p class="msg" id="rq-completeMsg"></p>` : '';
+
   container.innerHTML = `
+    ${completeButtonHtml}
     <div class="field">
       <label for="et-title">タスク内容</label>
       <input id="et-title" type="text" value="${escapeHtml(task.title)}">
@@ -1181,6 +1185,25 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
     <button class="ghost" id="reply-submit" style="width:100%;">送信する</button>
     <p class="msg" id="reply-msg"></p>
   `;
+
+  const completeBtn = document.getElementById('rq-completeBtn');
+  if (completeBtn) {
+    completeBtn.addEventListener('click', async () => {
+      completeBtn.disabled = true;
+      const msgEl = document.getElementById('rq-completeMsg');
+      msgEl.textContent = '更新中…';
+      msgEl.className = 'msg';
+      try {
+        await completeTask(task.id, me.slug);
+        onEdited();
+      } catch (e) {
+        console.error(e);
+        msgEl.textContent = '更新に失敗しました。通信状況を確認してもう一度お試しください。';
+        msgEl.className = 'msg msg-error';
+        completeBtn.disabled = false;
+      }
+    });
+  }
 
   document.getElementById('et-submit').addEventListener('click', async () => {
     const title = document.getElementById('et-title').value.trim();
