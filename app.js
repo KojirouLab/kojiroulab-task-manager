@@ -895,6 +895,21 @@ function closeSheet(overlay) {
   overlay.remove();
 }
 
+// 添付画像を、ダウンロードせずその場で大きく見るための簡易プレビュー。タップで閉じる。
+function openImageLightbox(url) {
+  const overlay = document.createElement('div');
+  overlay.className = 'lightbox-overlay';
+  overlay.innerHTML = `
+    <button type="button" class="lightbox-close" aria-label="閉じる">×</button>
+    <img src="${url}" class="lightbox-img" alt="添付画像のプレビュー">
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.classList.contains('lightbox-close')) close();
+  });
+}
+
 function openNewTaskSheet(me, { onCreated }) {
   const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false)
     .map((e) => `<option value="${e.slug}">${escapeHtml(e.name)}</option>`)
@@ -1052,7 +1067,13 @@ async function openTaskDetail(task, role, me, { onChanged }) {
       try {
         const url = await getAttachmentUrl(span.dataset.path);
         if (span.dataset.image === 'true') {
-          span.innerHTML = `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" class="attachment-img"></a>`;
+          const img = document.createElement('img');
+          img.src = url;
+          img.className = 'attachment-img';
+          img.alt = 'プレビュー(タップで拡大)';
+          img.addEventListener('click', () => openImageLightbox(url));
+          span.innerHTML = '';
+          span.appendChild(img);
         } else {
           span.innerHTML = `<a href="${url}" target="_blank" rel="noopener">開く/ダウンロード</a>`;
         }
