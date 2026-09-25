@@ -103,7 +103,8 @@ create policy "task_updates insert" on task_updates for insert to authenticated
 
 -- ============ 更新できる項目の制限 ============
 -- RLS は列単位で制限できないため、トリガーで守る:
---   ・依頼者だけが 内容/担当者/期限/メモ を変えられる(依頼者そのものは変更不可)
+--   ・依頼者だけが タイトル/担当者/メモ を変えられる(依頼者そのものは変更不可)
+--   ・期限は依頼者・担当者どちらも変えられる
 --   ・担当者は ステータス/完了日時 を自由に変えられる(確認・完了どちらも)
 --   ・依頼者も「完了」にする(完了日時を入れる)ことだけはできる
 -- SQL Editor などJWTなしの操作(current_slug() が null)は制限しない。
@@ -120,9 +121,12 @@ begin
   end if;
   if me <> old.requester_slug and (
     new.title <> old.title or new.description <> old.description
-    or new.assignee_slug <> old.assignee_slug or new.due_date is distinct from old.due_date
+    or new.assignee_slug <> old.assignee_slug
   ) then
     raise exception 'タスクの内容を変更できるのは依頼者だけです';
+  end if;
+  if new.due_date is distinct from old.due_date and me <> old.requester_slug and me <> old.assignee_slug then
+    raise exception '期限を変更できるのは依頼者または担当者だけです';
   end if;
   if new.status <> old.status or new.completed_at is distinct from old.completed_at then
     if me = old.assignee_slug then

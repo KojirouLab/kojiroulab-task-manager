@@ -1233,12 +1233,36 @@ function renderAssigneeActions(container, task, me, { onStatusChanged, onMessage
     ${actionButtonHtml}
     <p class="msg" id="statusMsg"></p>
     <div class="field" style="margin-top:14px;">
+      <label for="as-due">期限</label>
+      <input id="as-due" type="date" value="${task.due_date || ''}">
+    </div>
+    <button class="ghost" id="as-due-save" style="width:100%;">期限を変更する</button>
+    <p class="msg" id="as-due-msg"></p>
+    <div class="field" style="margin-top:14px;">
       <label for="msgInput">質問・コメント(任意)</label>
       <textarea id="msgInput" rows="3" placeholder="例) 納期は今週中で大丈夫でしょうか？"></textarea>
     </div>
     <button class="ghost" id="msgSubmit" style="width:100%;">送信する</button>
     <p class="msg" id="msgMsg"></p>
   `;
+
+  document.getElementById('as-due-save').addEventListener('click', async () => {
+    const btn = document.getElementById('as-due-save');
+    const msgEl = document.getElementById('as-due-msg');
+    const newDue = document.getElementById('as-due').value;
+    btn.disabled = true;
+    msgEl.textContent = '保存中…';
+    msgEl.className = 'msg';
+    try {
+      await updateDueDate(task.id, newDue, me.slug);
+      onStatusChanged();
+    } catch (e) {
+      console.error(e);
+      msgEl.textContent = '変更に失敗しました。通信状況を確認してもう一度お試しください。';
+      msgEl.className = 'msg msg-error';
+      btn.disabled = false;
+    }
+  });
 
   const confirmBtn = document.getElementById('confirmBtn');
   if (confirmBtn) {

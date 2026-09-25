@@ -357,6 +357,22 @@ async function editTask(taskId, { title, description, assigneeSlug, priority, du
   if (error) throw error;
 }
 
+// 担当者による期限の変更(内容・担当者はここでは変えられない。依頼者は editTask を使う)。
+async function updateDueDate(taskId, dueDate, employeeSlug) {
+  assertClient();
+  const { error } = await sb
+    .from('tasks')
+    .update({ due_date: dueDate || null, updated_at: new Date().toISOString() })
+    .eq('id', taskId);
+  if (error) throw error;
+  await sb.from('task_updates').insert({
+    task_id: taskId,
+    employee_slug: employeeSlug,
+    status: null,
+    comment: dueDate ? `期限を${dueDate}に変更しました` : '期限を削除しました',
+  });
+}
+
 async function deleteTask(taskId) {
   assertClient();
   const { error } = await sb.from('tasks').delete().eq('id', taskId);
