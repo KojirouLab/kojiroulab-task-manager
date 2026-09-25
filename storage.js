@@ -256,13 +256,16 @@ async function deleteTask(taskId) {
 }
 
 // ---- 添付ファイル ----
-// ストレージのパスは "{タスクid}/{タイムスタンプ}_{元のファイル名}" にする
-// (storage.objectsのRLSポリシーが、この先頭フォルダ=タスクidを見て権限を判定する)。
+// ストレージの保存先パスは "{タスクid}/{タイムスタンプ}_{ランダム文字列}.{拡張子}" という
+// 半角英数字だけの安全な形にする(日本語や②のような記号を含むファイル名だと、ストレージ側で
+// 保存に失敗することがあるため)。元のファイル名は file_name 列にそのまま保存し、画面表示に使う。
 
 async function uploadTaskAttachment(taskId, file, uploaderSlug) {
   assertClient();
-  const safeName = file.name.replace(/[/\\]/g, '_');
-  const path = `${taskId}/${Date.now()}_${safeName}`;
+  const extMatch = /\.[a-zA-Z0-9]{1,10}$/.exec(file.name);
+  const ext = extMatch ? extMatch[0].toLowerCase() : '';
+  const safeKey = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const path = `${taskId}/${safeKey}`;
   const { error: upErr } = await sb.storage.from('task-attachments').upload(path, file, {
     contentType: file.type || undefined,
   });
