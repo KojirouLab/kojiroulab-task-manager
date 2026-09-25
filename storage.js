@@ -306,19 +306,25 @@ async function completeTask(taskId, employeeSlug) {
     .insert({ task_id: taskId, employee_slug: employeeSlug, status: '完了', comment: null });
   if (logError) throw logError;
 
+  // 次回分の自動発行に失敗しても、完了処理自体は既に成功しているので失敗扱いにしない
+  // (ここで例外を投げると、完了できたのに画面上は失敗したように見えてしまうため)。
   if (updated && updated.repeat) {
-    const anchor = updated.repeat_anchor_date || updated.due_date;
-    const nextDate = computeNextDueDate(anchor, updated.repeat, updated.repeat_weekdays);
-    await createTask({
-      title: updated.title,
-      description: updated.description,
-      requesterSlug: updated.requester_slug,
-      assigneeSlug: updated.assignee_slug,
-      priority: updated.priority,
-      dueDate: nextDate,
-      repeat: updated.repeat,
-      repeatWeekdays: updated.repeat_weekdays,
-    });
+    try {
+      const anchor = updated.repeat_anchor_date || updated.due_date;
+      const nextDate = computeNextDueDate(anchor, updated.repeat, updated.repeat_weekdays);
+      await createTask({
+        title: updated.title,
+        description: updated.description,
+        requesterSlug: updated.requester_slug,
+        assigneeSlug: updated.assignee_slug,
+        priority: updated.priority,
+        dueDate: nextDate,
+        repeat: updated.repeat,
+        repeatWeekdays: updated.repeat_weekdays,
+      });
+    } catch (e) {
+      console.error('次回分の自動発行に失敗しました', e);
+    }
   }
 }
 
