@@ -350,6 +350,53 @@
     border-top: 1px solid var(--border);
     margin: 18px 0;
   }
+
+  /* 添付ファイル */
+  .attachment-stage {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+  }
+  .attachment-stage li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .attachment-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    max-width: 100%;
+  }
+  .attachment-thumb {
+    display: inline-flex;
+    align-items: center;
+  }
+  .attachment-img {
+    max-width: 56px;
+    max-height: 56px;
+    border-radius: 6px;
+    object-fit: cover;
+    display: block;
+  }
+  .attachment-name {
+    word-break: break-all;
+  }
 </style>
 </head>
 <body>

@@ -255,6 +255,55 @@ async function deleteTask(taskId) {
   if (error) throw error;
 }
 
+// ---- 添付ファイル ----
+// ストレージのパスは "{タスクid}/{タイムスタンプ}_{元のファイル名}" にする
+// (storage.objectsのRLSポリシーが、この先頭フォルダ=タスクidを見て権限を判定する)。
+
+async function uploadTaskAttachment(taskId, file, uploaderSlug) {
+  assertClient();
+  const safeName = file.name.replace(/[/\\]/g, '_');
+  const path = `${taskId}/${Date.now()}_${safeName}`;
+  const { error: upErr } = await sb.storage.from('task-attachments').upload(path, file, {
+    contentType: file.type || undefined,
+  });
+  if (upErr) throw upErr;
+  const { error: insErr } = await sb.from('task_attachments').insert({
+    task_id: taskId,
+    storage_path: path,
+    file_name: file.name,
+    content_type: file.type || null,
+    uploaded_by: uploaderSlug,
+  });
+  if (insErr) throw insErr;
+}
+
+async function fetchTaskAttachments(taskId) {
+  assertClient();
+  const { data, error } = await sb
+    .from('task_attachments')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+// ダウンロード・プレビュー用の一時URL(非公開バケットのため毎回発行する。既定で10分有効)
+async function getAttachmentUrl(storagePath) {
+  assertClient();
+  const { data, error } = await sb.storage.from('task-attachments').createSignedUrl(storagePath, 600);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function deleteTaskAttachment(id, storagePath) {
+  assertClient();
+  const { error: rmErr } = await sb.storage.from('task-attachments').remove([storagePath]);
+  if (rmErr) throw rmErr;
+  const { error: delErr } = await sb.from('task_attachments').delete().eq('id', id);
+  if (delErr) throw delErr;
+}
+
 async function fetchTaskUpdates(taskId) {
   assertClient();
   const { data, error } = await sb

@@ -924,11 +924,37 @@ function openNewTaskSheet(me, { onCreated }) {
       <label for="nt-desc">メモ(任意)</label>
       <textarea id="nt-desc" rows="4" placeholder="補足事項があれば"></textarea>
     </div>
+    <div class="field">
+      <label for="nt-files">画像・添付ファイル(任意)</label>
+      <input id="nt-files" type="file" multiple>
+      <ul id="nt-file-list" class="attachment-stage"></ul>
+    </div>
     <button class="primary" id="nt-submit">この内容で依頼する</button>
     <p class="msg" id="nt-msg"></p>
   `);
 
   document.getElementById('closeNewTask').addEventListener('click', () => closeSheet(overlay));
+
+  // 送信前は端末上に保持するだけ(タスクIDが決まってからアップロードする)
+  let stagedFiles = [];
+  const fileInput = document.getElementById('nt-files');
+  const fileListEl = document.getElementById('nt-file-list');
+  function renderStagedFiles() {
+    fileListEl.innerHTML = stagedFiles
+      .map((f, i) => `<li>${escapeHtml(f.name)} <button type="button" class="ghost" data-remove-staged="${i}" title="削除">×</button></li>`)
+      .join('');
+  }
+  fileInput.addEventListener('change', () => {
+    stagedFiles = stagedFiles.concat(Array.from(fileInput.files));
+    fileInput.value = '';
+    renderStagedFiles();
+  });
+  fileListEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove-staged]');
+    if (!btn) return;
+    stagedFiles.splice(Number(btn.dataset.removeStaged), 1);
+    renderStagedFiles();
+  });
 
   document.getElementById('nt-submit').addEventListener('click', async () => {
     const title = document.getElementById('nt-title').value.trim();
@@ -943,7 +969,7 @@ function openNewTaskSheet(me, { onCreated }) {
     msgEl.textContent = '送信中…';
     msgEl.className = 'msg';
     try {
-      await createTask({
+      const task = await createTask({
         title,
         description: document.getElementById('nt-desc').value.trim(),
         requesterSlug: me.slug,
@@ -951,6 +977,21 @@ function openNewTaskSheet(me, { onCreated }) {
         priority: document.getElementById('nt-priority').value,
         dueDate: document.getElementById('nt-due').value,
       });
+      if (stagedFiles.length) {
+        msgEl.textContent = 'ファイルをアップロード中…';
+        const failed = [];
+        for (const file of stagedFiles) {
+          try {
+            await uploadTaskAttachment(task.id, file, me.slug);
+          } catch (e) {
+            console.error(e);
+            failed.push(file.name);
+          }
+        }
+        if (failed.length) {
+          alert(`タスクは依頼できましたが、次のファイルのアップロードに失敗しました:\n${failed.join('\n')}`);
+        }
+      }
       closeSheet(overlay);
       onCreated();
     } catch (e) {
@@ -975,6 +1016,7 @@ async function openTaskDetail(task, role, me, { onChanged }) {
       ／ 期限: ${formatDueJp(task.due_date)}
     </p>
     ${task.description ? `<p class="hint" style="white-space:pre-wrap;margin-bottom:14px;">${escapeHtml(task.description)}</p>` : ''}
+    <div id="detail-attachments"></div>
     <div id="detail-actions"></div>
     <hr class="sep">
     <h2 style="font-size:14px;">やり取り</h2>
@@ -982,6 +1024,60 @@ async function openTaskDetail(task, role, me, { onChanged }) {
   `);
 
   document.getElementById('closeDetail').addEventListener('click', () => closeSheet(overlay));
+
+  const IMAGE_RE = /^image\//;
+  async function loadAttachments() {
+    const el = document.getElementById('detail-attachments');
+    let attachments;
+    try {
+      attachments = await fetchTaskAttachments(task.id);
+    } catch (e) {
+      console.error(e);
+      el.innerHTML = '<p class="msg-error">添付ファイルの読み込みに失敗しました。</p>';
+      return;
+    }
+    if (!attachments.length) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = `<div class="attachment-list">${attachments
+      .map((a) => `<div class="attachment-item" data-id="${a.id}">
+        <span class="attachment-thumb" data-path="${escapeHtml(a.storage_path)}" data-image="${IMAGE_RE.test(a.content_type || '')}">読み込み中…</span>
+        <span class="attachment-name">${escapeHtml(a.file_name)}</span>
+        ${role !== 'viewer' && (a.uploaded_by === me.slug || me.is_admin) ? `<button type="button" class="ghost" data-remove-attachment="${a.id}" data-path="${escapeHtml(a.storage_path)}" title="削除">×</button>` : ''}
+      </div>`)
+      .join('')}</div>`;
+
+    el.querySelectorAll('.attachment-thumb').forEach(async (span) => {
+      try {
+        const url = await getAttachmentUrl(span.dataset.path);
+        if (span.dataset.image === 'true') {
+          span.innerHTML = `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" class="attachment-img"></a>`;
+        } else {
+          span.innerHTML = `<a href="${url}" target="_blank" rel="noopener">開く/ダウンロード</a>`;
+        }
+      } catch (e) {
+        console.error(e);
+        span.textContent = '読み込みに失敗しました';
+      }
+    });
+
+    el.querySelectorAll('[data-remove-attachment]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('この添付ファイルを削除します。よろしいですか？')) return;
+        btn.disabled = true;
+        try {
+          await deleteTaskAttachment(btn.dataset.removeAttachment, btn.dataset.path);
+          loadAttachments();
+        } catch (e) {
+          console.error(e);
+          alert('削除に失敗しました。通信状況を確認してもう一度お試しください。');
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+  loadAttachments();
 
   const handleStatusChanged = () => {
     closeSheet(overlay);
