@@ -399,6 +399,29 @@
     word-break: break-all;
   }
 
+  /* 繰り返しの曜日選択 */
+  .weekday-toggle-group {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .weekday-toggle {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--hint);
+    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .weekday-toggle.on {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
   /* 添付画像のプレビュー(タップで拡大表示) */
   .lightbox-overlay {
     position: fixed;
@@ -434,7 +457,7 @@
 </head>
 <body>
 <div id="app"></div>
-<script src="storage.js?v=202609251545"></script>
-<script src="app.js?v=202609251545"></script>
+<script src="storage.js?v=202609251700"></script>
+<script src="app.js?v=202609251700"></script>
 </body>
 </html>

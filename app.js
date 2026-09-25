@@ -95,6 +95,48 @@ function priorityOptionsHtml(selected) {
   ).join('');
 }
 
+// ---- 繰り返し(taskdeskと同じ選択肢・同じ考え方) ----
+const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+const NTH_NAMES = ['', '第1', '第2', '第3', '第4', '第5'];
+
+// 期限日を基準に、選択肢の文言(第◯◯曜日など)を組み立てる。期限未入力なら今日を仮の基準にする。
+function repeatOptionsHtml(dueDateStr, selected) {
+  const base = dueDateStr ? new Date(`${dueDateStr}T00:00:00`) : new Date();
+  const wdName = `${WEEKDAY_NAMES[base.getDay()]}曜日`;
+  const nth = Math.floor((base.getDate() - 1) / 7) + 1;
+  const options = [
+    { v: '', label: 'なし' },
+    { v: 'daily', label: '毎日' },
+    { v: 'weekly', label: `毎週${wdName}` },
+    { v: 'weeklyMulti', label: '毎週(曜日を選択)' },
+    { v: 'monthlyDate', label: `毎月${base.getDate()}日` },
+    { v: 'monthlyNth', label: `毎月${NTH_NAMES[nth] || `第${nth}`}${wdName}` },
+    { v: 'monthlyLastWeekday', label: `毎月最終${wdName}` },
+    { v: 'monthlyFirstDay', label: '毎月月初め(1日)' },
+    { v: 'monthlyLastDay', label: '毎月月末' },
+    { v: 'monthlyLastBusinessDay', label: '毎月最終平日' },
+  ];
+  return options.map((o) => `<option value="${o.v}"${o.v === (selected || '') ? ' selected' : ''}>${o.label}</option>`).join('');
+}
+
+// "weeklyMulti"の時だけ、選んだ曜日をトグルできるボタンを追加で出す。
+function repeatPillLabel(freq) {
+  if (freq === 'daily') return '毎日';
+  if (freq === 'weekly' || freq === 'weeklyMulti') return '毎週';
+  if (freq && freq.indexOf('monthly') === 0) return '毎月';
+  return '';
+}
+
+function repeatWeekdaysHtml(idPrefix, repeat, weekdays) {
+  if (repeat !== 'weeklyMulti') return '';
+  const days = weekdays || [];
+  const buttons = WEEKDAY_NAMES.map(
+    (name, idx) =>
+      `<button type="button" class="weekday-toggle${days.includes(idx) ? ' on' : ''}" data-${idPrefix}-weekday="${idx}">${name}</button>`
+  ).join('');
+  return `<div class="field" id="${idPrefix}-weekdays-field"><label>曜日</label><div class="weekday-toggle-group">${buttons}</div></div>`;
+}
+
 // その人専用のURL(?u=slug)。ブックマーク/ホーム画面に追加してもらうためのもの。
 function personalUrl(slug) {
   return `${location.origin}${location.pathname}?u=${encodeURIComponent(slug)}`;
@@ -380,7 +422,7 @@ async function renderPersonPage(me, { googleResult } = {}) {
       <div class="task-title">${escapeHtml(task.title)}</div>
       <div class="task-meta">
         <span class="status-badge ${statusClass(task.status)}">${task.status}</span>
-        ${who} ・ 期限: ${formatDueJp(task.due_date)}
+        ${who} ・ 期限: ${formatDueJp(task.due_date)}${task.repeat ? ` ・ ↻ ${repeatPillLabel(task.repeat)}` : ''}
       </div>
     </li>`;
   }
@@ -936,6 +978,11 @@ function openNewTaskSheet(me, { onCreated }) {
       <input id="nt-due" type="date">
     </div>
     <div class="field">
+      <label for="nt-repeat">繰り返し</label>
+      <select id="nt-repeat">${repeatOptionsHtml('', '')}</select>
+    </div>
+    <div id="nt-repeat-weekdays"></div>
+    <div class="field">
       <label for="nt-desc">メモ(任意)</label>
       <textarea id="nt-desc" rows="4" placeholder="補足事項があれば"></textarea>
     </div>
@@ -947,6 +994,38 @@ function openNewTaskSheet(me, { onCreated }) {
     <button class="primary" id="nt-submit">この内容で依頼する</button>
     <p class="msg" id="nt-msg"></p>
   `);
+
+  let ntRepeatWeekdays = [];
+  function renderNtRepeatWeekdays() {
+    const repeatSel = document.getElementById('nt-repeat');
+    const box = document.getElementById('nt-repeat-weekdays');
+    if (repeatSel.value === 'weeklyMulti' && !ntRepeatWeekdays.length) {
+      const base = document.getElementById('nt-due').value ? new Date(`${document.getElementById('nt-due').value}T00:00:00`) : new Date();
+      ntRepeatWeekdays = [base.getDay()];
+    }
+    box.innerHTML = repeatWeekdaysHtml('nt', repeatSel.value, ntRepeatWeekdays);
+    box.querySelectorAll('[data-nt-weekday]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.ntWeekday);
+        const pos = ntRepeatWeekdays.indexOf(idx);
+        if (pos === -1) ntRepeatWeekdays.push(idx);
+        else ntRepeatWeekdays.splice(pos, 1);
+        ntRepeatWeekdays.sort((a, b) => a - b);
+        renderNtRepeatWeekdays();
+      });
+    });
+  }
+  function refreshNtRepeatOptions() {
+    const repeatSel = document.getElementById('nt-repeat');
+    const current = repeatSel.value;
+    repeatSel.innerHTML = repeatOptionsHtml(document.getElementById('nt-due').value, current);
+    renderNtRepeatWeekdays();
+  }
+  document.getElementById('nt-due').addEventListener('change', refreshNtRepeatOptions);
+  document.getElementById('nt-repeat').addEventListener('change', () => {
+    if (document.getElementById('nt-repeat').value !== 'weeklyMulti') ntRepeatWeekdays = [];
+    renderNtRepeatWeekdays();
+  });
 
   document.getElementById('closeNewTask').addEventListener('click', () => closeSheet(overlay));
 
@@ -991,6 +1070,8 @@ function openNewTaskSheet(me, { onCreated }) {
         assigneeSlug: document.getElementById('nt-assignee').value,
         priority: document.getElementById('nt-priority').value,
         dueDate: document.getElementById('nt-due').value,
+        repeat: document.getElementById('nt-repeat').value || null,
+        repeatWeekdays: ntRepeatWeekdays,
       });
       if (stagedFiles.length) {
         msgEl.textContent = 'ファイルをアップロード中…';
@@ -1028,7 +1109,7 @@ async function openTaskDetail(task, role, me, { onChanged }) {
       <span class="status-badge ${statusClass(task.status)}">${task.status}</span>
       ${priorityBadgeHtml(task)} 重要度 ${PRIORITY_LABEL[priorityOf(task)]}
       ／ 依頼者: ${escapeHtml(employeeName(task.requester_slug))} ／ 担当者: ${escapeHtml(employeeName(task.assignee_slug))}
-      ／ 期限: ${formatDueJp(task.due_date)}
+      ／ 期限: ${formatDueJp(task.due_date)}${task.repeat ? ` ／ <span class="status-badge status-progress">↻ ${repeatPillLabel(task.repeat)}</span>` : ''}
     </p>
     ${task.description ? `<p class="hint" style="white-space:pre-wrap;margin-bottom:14px;">${escapeHtml(task.description)}</p>` : ''}
     <div id="detail-attachments"></div>
@@ -1289,6 +1370,11 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
       <input id="et-due" type="date" value="${task.due_date || ''}">
     </div>
     <div class="field">
+      <label for="et-repeat">繰り返し</label>
+      <select id="et-repeat">${repeatOptionsHtml(task.due_date, task.repeat || '')}</select>
+    </div>
+    <div id="et-repeat-weekdays"></div>
+    <div class="field">
       <label for="et-desc">メモ</label>
       <textarea id="et-desc" rows="4">${escapeHtml(task.description || '')}</textarea>
     </div>
@@ -1302,6 +1388,38 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
     <button class="ghost" id="reply-submit" style="width:100%;">送信する</button>
     <p class="msg" id="reply-msg"></p>
   `;
+
+  let etRepeatWeekdays = task.repeat === 'weeklyMulti' ? task.repeat_weekdays || [] : [];
+  function renderEtRepeatWeekdays() {
+    const repeatSel = document.getElementById('et-repeat');
+    const box = document.getElementById('et-repeat-weekdays');
+    if (repeatSel.value === 'weeklyMulti' && !etRepeatWeekdays.length) {
+      const base = document.getElementById('et-due').value ? new Date(`${document.getElementById('et-due').value}T00:00:00`) : new Date();
+      etRepeatWeekdays = [base.getDay()];
+    }
+    box.innerHTML = repeatWeekdaysHtml('et', repeatSel.value, etRepeatWeekdays);
+    box.querySelectorAll('[data-et-weekday]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.etWeekday);
+        const pos = etRepeatWeekdays.indexOf(idx);
+        if (pos === -1) etRepeatWeekdays.push(idx);
+        else etRepeatWeekdays.splice(pos, 1);
+        etRepeatWeekdays.sort((a, b) => a - b);
+        renderEtRepeatWeekdays();
+      });
+    });
+  }
+  document.getElementById('et-due').addEventListener('change', () => {
+    const repeatSel = document.getElementById('et-repeat');
+    const current = repeatSel.value;
+    repeatSel.innerHTML = repeatOptionsHtml(document.getElementById('et-due').value, current);
+    renderEtRepeatWeekdays();
+  });
+  document.getElementById('et-repeat').addEventListener('change', () => {
+    if (document.getElementById('et-repeat').value !== 'weeklyMulti') etRepeatWeekdays = [];
+    renderEtRepeatWeekdays();
+  });
+  renderEtRepeatWeekdays();
 
   const completeBtn = document.getElementById('rq-completeBtn');
   if (completeBtn) {
@@ -1341,6 +1459,8 @@ function renderRequesterActions(container, task, me, { onEdited, onMessagePosted
         assigneeSlug: document.getElementById('et-assignee').value,
         priority: document.getElementById('et-priority').value,
         dueDate: document.getElementById('et-due').value,
+        repeat: document.getElementById('et-repeat').value || null,
+        repeatWeekdays: etRepeatWeekdays,
       });
       onEdited();
     } catch (e) {

@@ -173,7 +173,86 @@ async function fetchAllTasks() {
   return data || [];
 }
 
-async function createTask({ title, description, requesterSlug, assigneeSlug, priority, dueDate }) {
+// ---- 繰り返し(taskdeskと同じ考え方: 完了にした時点で次回分を1件だけ新規発行する) ----
+
+function lastDayOfMonth(year, month) {
+  return new Date(year, month + 1, 0).getDate();
+}
+function nthWeekdayOfMonth(date) {
+  return Math.floor((date.getDate() - 1) / 7) + 1;
+}
+function nthWeekdayDate(year, month, weekday, nth) {
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const offset = (weekday - firstWeekday + 7) % 7;
+  let day = 1 + offset + (nth - 1) * 7;
+  const last = lastDayOfMonth(year, month);
+  if (day > last) day -= 7;
+  return new Date(year, month, day);
+}
+function lastWeekdayDate(year, month, weekday) {
+  const d = new Date(year, month, lastDayOfMonth(year, month));
+  while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+  return d;
+}
+function lastBusinessDayDate(year, month) {
+  const d = new Date(year, month, lastDayOfMonth(year, month));
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return d;
+}
+function dateToKey(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+// freq(文字列)と基準日から、次回の発生日を計算する(YYYY-MM-DD文字列で返す)。
+function computeNextDueDate(baseDateStr, freq, weekdays) {
+  const base = baseDateStr ? new Date(`${baseDateStr}T00:00:00`) : new Date();
+  const y = base.getFullYear(), m = base.getMonth(), d = base.getDate();
+  let next;
+  switch (freq) {
+    case 'daily':
+      next = new Date(y, m, d + 1);
+      break;
+    case 'weekly':
+      next = new Date(y, m, d + 7);
+      break;
+    case 'weeklyMulti': {
+      const days = weekdays && weekdays.length ? weekdays : [base.getDay()];
+      next = null;
+      for (let add = 1; add <= 7; add++) {
+        const cand = new Date(y, m, d + add);
+        if (days.includes(cand.getDay())) {
+          next = cand;
+          break;
+        }
+      }
+      if (!next) next = new Date(y, m, d + 7);
+      break;
+    }
+    case 'monthlyDate':
+      next = new Date(y, m + 1, Math.min(d, lastDayOfMonth(y, m + 1)));
+      break;
+    case 'monthlyNth':
+      next = nthWeekdayDate(y, m + 1, base.getDay(), nthWeekdayOfMonth(base));
+      break;
+    case 'monthlyLastWeekday':
+      next = lastWeekdayDate(y, m + 1, base.getDay());
+      break;
+    case 'monthlyFirstDay':
+      next = new Date(y, m + 1, 1);
+      break;
+    case 'monthlyLastDay':
+      next = new Date(y, m + 2, 0);
+      break;
+    case 'monthlyLastBusinessDay':
+      next = lastBusinessDayDate(y, m + 1);
+      break;
+    default:
+      next = new Date(y, m, d + 7);
+  }
+  return dateToKey(next);
+}
+
+async function createTask({ title, description, requesterSlug, assigneeSlug, priority, dueDate, repeat, repeatWeekdays }) {
   assertClient();
   const { data, error } = await sb
     .from('tasks')
@@ -185,6 +264,9 @@ async function createTask({ title, description, requesterSlug, assigneeSlug, pri
       priority: priority || 'B',
       due_date: dueDate || null,
       status: '未確認',
+      repeat: repeat || null,
+      repeat_weekdays: repeat === 'weeklyMulti' ? repeatWeekdays || null : null,
+      repeat_anchor_date: repeat ? dueDate || null : null,
     })
     .select()
     .single();
@@ -207,20 +289,37 @@ async function confirmTask(taskId, employeeSlug) {
   if (logError) throw logError;
 }
 
-// 担当者が「完了にする」を押した時。
+// 担当者、または依頼者が「完了にする」を押した時。繰り返し設定があれば、次回分を1件新規発行する。
 async function completeTask(taskId, employeeSlug) {
   assertClient();
   const now = new Date().toISOString();
-  const { error: updateError } = await sb
+  const { data: updated, error: updateError } = await sb
     .from('tasks')
     .update({ status: '完了', updated_at: now, completed_at: now })
-    .eq('id', taskId);
+    .eq('id', taskId)
+    .select()
+    .single();
   if (updateError) throw updateError;
 
   const { error: logError } = await sb
     .from('task_updates')
     .insert({ task_id: taskId, employee_slug: employeeSlug, status: '完了', comment: null });
   if (logError) throw logError;
+
+  if (updated && updated.repeat) {
+    const anchor = updated.repeat_anchor_date || updated.due_date;
+    const nextDate = computeNextDueDate(anchor, updated.repeat, updated.repeat_weekdays);
+    await createTask({
+      title: updated.title,
+      description: updated.description,
+      requesterSlug: updated.requester_slug,
+      assigneeSlug: updated.assignee_slug,
+      priority: updated.priority,
+      dueDate: nextDate,
+      repeat: updated.repeat,
+      repeatWeekdays: updated.repeat_weekdays,
+    });
+  }
 }
 
 // 質問・コメント(ステータスは変えず、依頼者・担当者どちらからも送れる)。
@@ -233,7 +332,7 @@ async function postMessage(taskId, employeeSlug, comment) {
 }
 
 // 依頼者によるタスク内容の編集。
-async function editTask(taskId, { title, description, assigneeSlug, priority, dueDate }) {
+async function editTask(taskId, { title, description, assigneeSlug, priority, dueDate, repeat, repeatWeekdays }) {
   assertClient();
   const { error } = await sb
     .from('tasks')
@@ -243,6 +342,9 @@ async function editTask(taskId, { title, description, assigneeSlug, priority, du
       assignee_slug: assigneeSlug,
       priority: priority || 'B',
       due_date: dueDate || null,
+      repeat: repeat || null,
+      repeat_weekdays: repeat === 'weeklyMulti' ? repeatWeekdays || null : null,
+      repeat_anchor_date: repeat ? dueDate || null : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', taskId);
