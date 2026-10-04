@@ -121,9 +121,11 @@ begin
   end if;
   if me <> old.requester_slug and (
     new.title <> old.title or new.description <> old.description
-    or new.assignee_slug <> old.assignee_slug
   ) then
     raise exception 'タスクの内容を変更できるのは依頼者だけです';
+  end if;
+  if new.assignee_slug <> old.assignee_slug and me <> old.requester_slug and me <> old.assignee_slug then
+    raise exception '担当者を変更できるのは依頼者または現在の担当者だけです';
   end if;
   if new.due_date is distinct from old.due_date and me <> old.requester_slug and me <> old.assignee_slug then
     raise exception '期限を変更できるのは依頼者または担当者だけです';

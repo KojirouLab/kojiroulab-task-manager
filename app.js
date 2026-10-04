@@ -1225,6 +1225,9 @@ async function openTaskDetail(task, role, me, { onChanged }) {
 }
 
 function renderAssigneeActions(container, task, me, { onStatusChanged, onMessagePosted }) {
+  const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false || e.slug === task.assignee_slug)
+    .map((e) => `<option value="${e.slug}"${e.slug === task.assignee_slug ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
+    .join('');
   const actionButtonHtml =
     task.status === '未確認'
       ? `<button class="primary" id="confirmBtn">確認する</button>`
@@ -1242,6 +1245,12 @@ function renderAssigneeActions(container, task, me, { onStatusChanged, onMessage
     <button class="ghost" id="as-due-save" style="width:100%;">期限を変更する</button>
     <p class="msg" id="as-due-msg"></p>
     <div class="field" style="margin-top:14px;">
+      <label for="as-assignee">担当者</label>
+      <select id="as-assignee">${assigneeOptions}</select>
+    </div>
+    <button class="ghost" id="as-assignee-save" style="width:100%;">担当者を変更する</button>
+    <p class="msg" id="as-assignee-msg"></p>
+    <div class="field" style="margin-top:14px;">
       <label for="msgInput">質問・コメント(任意)</label>
       <textarea id="msgInput" rows="3" placeholder="例) 納期は今週中で大丈夫でしょうか？"></textarea>
     </div>
@@ -1258,6 +1267,26 @@ function renderAssigneeActions(container, task, me, { onStatusChanged, onMessage
     msgEl.className = 'msg';
     try {
       await updateDueDate(task.id, newDue, me.slug);
+      onStatusChanged();
+    } catch (e) {
+      console.error(e);
+      msgEl.textContent = '変更に失敗しました。通信状況を確認してもう一度お試しください。';
+      msgEl.className = 'msg msg-error';
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('as-assignee-save').addEventListener('click', async () => {
+    const btn = document.getElementById('as-assignee-save');
+    const msgEl = document.getElementById('as-assignee-msg');
+    const newAssigneeSlug = document.getElementById('as-assignee').value;
+    if (newAssigneeSlug === task.assignee_slug) return;
+    const newAssigneeName = (EMPLOYEES.find((e) => e.slug === newAssigneeSlug) || {}).name || newAssigneeSlug;
+    btn.disabled = true;
+    msgEl.textContent = '保存中…';
+    msgEl.className = 'msg';
+    try {
+      await updateAssignee(task.id, newAssigneeSlug, newAssigneeName, me.slug);
       onStatusChanged();
     } catch (e) {
       console.error(e);
