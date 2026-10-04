@@ -954,8 +954,11 @@ function openImageLightbox(url) {
 
 function openNewTaskSheet(me, { onCreated }) {
   const assigneeOptions = EMPLOYEES.filter((e) => e.active !== false)
-    .map((e) => `<option value="${e.slug}">${escapeHtml(e.name)}</option>`)
+    .map((e) => `<option value="${e.slug}"${e.slug === me.slug ? ' selected' : ''}>${escapeHtml(e.name)}</option>`)
     .join('');
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = dateToKey(tomorrow);
   const overlay = openSheet(`
     <div class="sheet-header">
       <h2>タスクを依頼する</h2>
@@ -975,7 +978,7 @@ function openNewTaskSheet(me, { onCreated }) {
     </div>
     <div class="field">
       <label for="nt-due">期限(任意)</label>
-      <input id="nt-due" type="date">
+      <input id="nt-due" type="date" value="${tomorrowStr}">
     </div>
     <div class="field">
       <label for="nt-repeat">繰り返し</label>
