@@ -186,10 +186,10 @@
   .abc-col .task-item { padding-left: 2px; padding-right: 2px; }
   .abc-col .hint.empty { margin: 6px 0 10px; }
   .done-block { margin-top: 14px; }
-  .person-group { border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px 8px; margin-bottom: 10px; background: var(--bg); }
-  .person-group-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--text); padding: 6px 2px 4px; margin-bottom: 2px; border-bottom: 1px solid var(--border); }
-  .person-group-head .prio-count { margin-left: auto; font-weight: 400; color: var(--hint); }
-  .person-group .task-item { background: var(--card-bg); }
+  .person-group { border: 2px solid var(--primary); border-radius: 10px; padding: 0 8px 6px; margin-bottom: 14px; background: var(--card-bg); }
+  .person-group-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: #fff; background: var(--primary); padding: 5px 8px; margin: 0 -8px 2px; border-radius: 8px 8px 0 0; }
+  .person-group-head .prio-count { margin-left: auto; font-weight: 400; }
+  .person-group .task-item:last-child { border-bottom: none; }
   @media (max-width: 720px) { .abc-grid { grid-template-columns: 1fr; } }
   .prio-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--hint); margin: 6px 0 4px; }
   .prio-head .prio-count { margin-left: auto; font-weight: 400; }
