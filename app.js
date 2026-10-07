@@ -398,6 +398,13 @@ async function renderPersonPage(me, { googleResult } = {}) {
           ${EMPLOYEES.map((e) => `<option value="${escapeHtml(e.slug)}">${escapeHtml(e.name)}さん関連</option>`).join('')}
         </select>
       </div>
+      <div class="field" id="groupByField" style="display:none;">
+        <select id="groupByFilter">
+          <option value="">グループ分けしない</option>
+          <option value="requester">依頼した人ごとに分ける</option>
+          <option value="assignee">受けた人ごとに分ける</option>
+        </select>
+      </div>
 
       <div id="taskListArea"><p class="hint">読み込み中…</p></div>
     </div>`;
@@ -427,8 +434,35 @@ async function renderPersonPage(me, { googleResult } = {}) {
     </li>`;
   }
 
+  // 重要度の列の中身を、依頼した人/受けた人ごとに見出しを分けて表示する。
+  function groupedListHtml(tasks, mode, groupBy) {
+    const slugKey = groupBy === 'requester' ? 'requester_slug' : 'assignee_slug';
+    const bySlug = new Map();
+    tasks.forEach((t) => {
+      const key = t[slugKey];
+      if (!bySlug.has(key)) bySlug.set(key, []);
+      bySlug.get(key).push(t);
+    });
+    const order = EMPLOYEES.map((e) => e.slug);
+    const slugs = [...bySlug.keys()].sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+    return slugs
+      .map((s) => {
+        const group = bySlug.get(s);
+        return `<div class="person-group">
+          <div class="person-group-head">${escapeHtml(employeeName(s))}<span class="prio-count">${group.length}件</span></div>
+          <ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>
+        </div>`;
+      })
+      .join('');
+  }
+
   // 重要度A・B・Cを横3列に並べ、各列は期限が近い順。完了済み(「すべて」表示時のみ)は下にまとめる。
-  function boardHtml(tasks, mode) {
+  // groupBy を指定すると、各列の中身を依頼した人/受けた人ごとに見出しを分けて表示する(全員のタスクのみ)。
+  function boardHtml(tasks, mode, groupBy) {
     const visible = activeFilter === 'open' ? tasks.filter((t) => t.status !== '完了') : tasks;
     const open = visible.filter((t) => t.status !== '完了');
     const done = visible.filter((t) => t.status === '完了');
@@ -437,9 +471,11 @@ async function renderPersonPage(me, { googleResult } = {}) {
       return `<div class="abc-col prio-${pr}">
         <div class="prio-head"><span class="prio-badge prio-${pr}">${pr}</span>重要度 ${PRIORITY_LABEL[pr]}<span class="prio-count">${group.length}件</span></div>
         ${
-          group.length
-            ? `<ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>`
-            : '<p class="hint empty">なし</p>'
+          !group.length
+            ? '<p class="hint empty">なし</p>'
+            : groupBy
+              ? groupedListHtml(group, mode, groupBy)
+              : `<ul class="task-list">${group.map((t) => taskItemHtml(t, mode)).join('')}</ul>`
         }
       </div>`;
     }).join('');
@@ -471,7 +507,8 @@ async function renderPersonPage(me, { googleResult } = {}) {
       let tasks = allTasks;
       const who = document.getElementById('personFilter').value;
       if (who) tasks = tasks.filter((t) => t.requester_slug === who || t.assignee_slug === who);
-      listArea.innerHTML = `<section class="board">${boardHtml(tasks, 'all')}</section>`;
+      const groupBy = document.getElementById('groupByFilter').value || null;
+      listArea.innerHTML = `<section class="board">${boardHtml(tasks, 'all', groupBy)}</section>`;
     }
     listArea.querySelectorAll('.task-item').forEach((li) => {
       li.addEventListener('click', () => {
@@ -507,6 +544,7 @@ async function renderPersonPage(me, { googleResult } = {}) {
       activeView = btn.dataset.tab;
       pageEl.classList.toggle('wide', activeView === 'mine');
       document.getElementById('personFilterField').style.display = activeView === 'all' ? '' : 'none';
+      document.getElementById('groupByField').style.display = activeView === 'all' ? '' : 'none';
       document.getElementById('filterRow').style.display = activeView === 'members' ? 'none' : '';
       refreshActive();
     });
@@ -522,6 +560,7 @@ async function renderPersonPage(me, { googleResult } = {}) {
   });
 
   document.getElementById('personFilter').addEventListener('change', renderList);
+  document.getElementById('groupByFilter').addEventListener('change', renderList);
 
   document.getElementById('googleBtn').addEventListener('click', (e) => {
     e.preventDefault();
